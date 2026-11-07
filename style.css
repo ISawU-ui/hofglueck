@@ -5,7 +5,8 @@
 * { box-sizing: border-box; }
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); } /* Notch / Home-Balken */
 html, body { margin: 0; height: 100%; overflow: hidden; background: #3f7a35; color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif; user-select: none; -webkit-user-select: none; }
+  font-family: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif; font-weight: 600; user-select: none; -webkit-user-select: none; }
+b, h2, h3, .logo { font-weight: 800; }
 button { font: inherit; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 
 #app { display: grid; grid-template-columns: 1fr 340px; grid-template-rows: auto 1fr; height: 100%; }
@@ -41,6 +42,13 @@ button { font: inherit; cursor: pointer; touch-action: manipulation; -webkit-tap
 #zoombtns button { width: 40px; height: 40px; border: 0; border-radius: 10px; background: rgba(93,58,26,.88); color: #fff;
   font-size: 22px; font-weight: 700; line-height: 1; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
 #zoombtns button:active { transform: scale(.94); }
+#placebar { position: absolute; z-index: 5; left: 50%; bottom: 92px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
+  padding: 6px 6px 6px 14px; background: rgba(40,25,10,.92); color: #fff; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,.4);
+  font-size: 14px; white-space: nowrap; animation: pop .2s ease-out; }
+#placebar[hidden] { display: none; }
+#placebar button { border: 0; border-radius: 10px; padding: 9px 16px; font-weight: 800; font-size: 15px; background: var(--green); color: #fff; box-shadow: 0 3px 0 var(--green-d); }
+#placebar button:disabled { background: #8f8473; box-shadow: 0 3px 0 #6f6555; cursor: not-allowed; }
+#placebar button.ghost { padding: 9px 13px; }
 #toasts { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
 .toast { background: rgba(40,25,10,.88); color: #fff; padding: 8px 16px; border-radius: 20px; font-size: 14px; animation: pop .25s ease-out; transition: opacity .4s; }
 .toast.good { background: rgba(46,125,50,.95); }
@@ -52,6 +60,8 @@ button { font: inherit; cursor: pointer; touch-action: manipulation; -webkit-tap
 #tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; background: var(--wood); }
 #tabs button { position: relative; flex: 1 1 30%; border: 0; border-radius: 8px; padding: 7px 4px; background: #c79a63; color: var(--ink); font-size: 13px; font-weight: 600; }
 #tabs button.sel { background: var(--paper); }
+#tabs button.hint { animation: hintpulse 1.1s ease-in-out infinite; }
+@keyframes hintpulse { 50% { box-shadow: 0 0 0 4px var(--gold), 0 0 16px 4px rgba(255,211,77,.7); } }
 .badge { position: absolute; top: -6px; right: -4px; background: var(--red); color: #fff; border-radius: 10px; font-size: 11px; padding: 1px 6px; border: 2px solid #fff; animation: bounce 1s infinite; }
 @keyframes bounce { 50% { transform: translateY(-3px); } }
 #content { flex: 1; overflow-y: auto; padding: 10px max(10px, env(safe-area-inset-right, 0px)) 10px 10px; }
@@ -75,6 +85,46 @@ button { font: inherit; cursor: pointer; touch-action: manipulation; -webkit-tap
 button.ghost { background: #e9dcc4 !important; color: var(--ink) !important; box-shadow: 0 3px 0 #c4b393 !important; }
 button.danger:not(.ghost) { background: var(--red) !important; box-shadow: 0 3px 0 #a33 !important; }
 button.ghost.danger { color: var(--red) !important; }
+button.armed { background: var(--red) !important; color: #fff !important; box-shadow: 0 3px 0 #a33 !important; }
+button.gold { background: #e0a800 !important; box-shadow: 0 3px 0 #a87c00 !important; }
+#modalbox .linkbtn { display: block; margin: 14px 0 -6px auto; padding: 4px 6px; background: none; box-shadow: none; color: #a0473f; font-size: 12px; font-weight: 700; opacity: .8; }
+#content button.wide { display: block; width: 100%; margin: 0 0 10px; border: 0; border-radius: 10px; padding: 8px; background: var(--wood); color: #fff; font-weight: 800; box-shadow: 0 3px 0 var(--wood-d); }
+.card small.down { display: inline-block; color: #c0392b; font-weight: 800; }
+p.small, .small { font-size: 12px; color: #6d5a48; }
+.tier { font-weight: 800; }
+.new { color: #c98a00; font-weight: 800; }
+.coat { display: inline-block; width: 15px; height: 15px; border-radius: 50%; background: var(--b); border: 3px solid var(--m); vertical-align: middle; margin: 0 2px; box-sizing: content-box; font-style: normal; }
+.coat.rainbow { border-color: transparent; background: linear-gradient(#fff, #fff) padding-box, conic-gradient(#ff6b6b, #ffd34d, #7ed957, #6bcbff, #c98bff, #ff6b6b) border-box; }
+.coat.unknown { background: #e2d8c6; border-color: #cbbfa8; color: #9a8b74; font-size: 10px; line-height: 15px; text-align: center; font-weight: 800; }
+.horses { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 5px; }
+.hrow { display: flex; align-items: center; gap: 8px; background: var(--paper-d); border-radius: 10px; padding: 4px 6px 4px 8px; text-align: left; }
+.hrow span { flex: 1; }
+.hrow button { padding: 5px 9px !important; }
+.foal canvas { display: block; width: 220px; height: 140px; margin: 0 auto; }
+.intro .ico { font-size: 54px; line-height: 1.1; }
+.intro p { line-height: 1.5; }
+.dots { display: flex; gap: 6px; justify-content: center; margin: 6px 0 2px; }
+.dots i { width: 8px; height: 8px; border-radius: 50%; background: #d8c8a8; }
+.dots i.on { background: var(--wood); }
+ul.news { text-align: left; padding-left: 4px; list-style: none; margin: 4px 0 12px; line-height: 1.55; }
+
+/* Angeln */
+.fishscene { position: relative; height: 120px; border-radius: 14px; overflow: hidden; cursor: pointer; margin: 4px 0 8px;
+  background: radial-gradient(ellipse at 30% 20%, #8fd8ff 0, #4aa8e8 45%, #2d7fc0 100%); box-shadow: inset 0 -10px 20px rgba(0,40,80,.25); }
+.fishscene::before { content: ''; position: absolute; inset: 0; background: repeating-radial-gradient(circle at 50% 60%, rgba(255,255,255,.12) 0 2px, transparent 2px 22px); animation: ripple 3s linear infinite; }
+@keyframes ripple { to { transform: scale(1.15); opacity: .6; } }
+.fishscene .line { position: absolute; left: 50%; top: 0; width: 2px; height: 58%; background: rgba(255,255,255,.75); opacity: 0; transition: opacity .2s; }
+.fishscene .bob { position: absolute; left: calc(50% - 9px); top: 52%; width: 18px; height: 18px; border-radius: 50%; opacity: 0;
+  background: linear-gradient(#e74c3c 50%, #fff 50%); box-shadow: 0 0 0 2px rgba(0,0,0,.15); transition: opacity .2s, transform .15s; }
+.fishscene .bite { position: absolute; left: calc(50% + 14px); top: 18%; font-size: 30px; opacity: 0; transform: scale(.4); transition: all .12s; }
+.fishscene .catch { position: absolute; left: 50%; top: 50%; font-size: 46px; transform: translate(-50%, -50%) scale(0); }
+.fishscene.wait .line, .fishscene.bite .line, .fishscene.wait .bob, .fishscene.bite .bob { opacity: 1; }
+.fishscene.wait .bob { animation: bobber 1.2s ease-in-out infinite; }
+.fishscene.bite .bob { transform: translateY(12px) scale(.8); animation: none; }
+.fishscene.bite .bite { opacity: 1; transform: scale(1); animation: bounce .4s infinite; }
+.fishscene.caught .catch { animation: catchup .7s ease-out forwards; }
+@keyframes bobber { 50% { transform: translateY(4px); } }
+@keyframes catchup { 0% { transform: translate(-50%, 10%) scale(.3); } 60% { transform: translate(-50%, -80%) scale(1.25) rotate(-12deg); } 100% { transform: translate(-50%, -55%) scale(1) rotate(0); } }
 .miss { color: var(--red); font-weight: 700; }
 .order span { display: inline-block; margin-right: 6px; }
 .bar { height: 8px; background: #e2d3b6; border-radius: 4px; overflow: hidden; margin: 4px 0; }
@@ -141,6 +191,18 @@ button.ghost.danger { color: var(--red) !important; }
   .card button { padding: 5px 8px; font-size: 12px; }
 
   #zoombtns { top: 46px; right: calc(var(--gr) + 58px); gap: 5px; }
+  #placebar { bottom: 8px; font-size: 12px; padding: 4px 4px 4px 10px; }
+  #placebar button { padding: 7px 12px; font-size: 14px; }
+  .fishscene { height: 84px; }
+  .intro .ico { font-size: 36px; }
+  .intro p, ul.news { font-size: 13px; line-height: 1.4; margin: 4px 0 8px; }
+  .foal canvas { width: 176px; height: 112px; }
+  #modalbox .linkbtn { margin-top: 8px; }
+  #modalbox .row { margin-top: 8px; }
+  #modalbox .status p { margin: 4px 0; }
+  .horses { gap: 3px; margin: 4px 0 2px; }
+  .hrow { padding: 2px 4px 2px 6px; font-size: 13px; }
+  .hrow button { padding: 3px 8px !important; font-size: 12px !important; }
   #zoombtns button { width: 34px; height: 34px; font-size: 18px; }
   #toasts { top: 46px; }
 

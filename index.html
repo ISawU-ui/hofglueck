@@ -13,6 +13,8 @@
   <meta name="apple-mobile-web-app-title" content="Hofglück">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -26,6 +28,7 @@
       </div>
       <div id="goal"></div>
       <button id="fullscreen" class="iconbtn" title="Vollbild" aria-label="Vollbild" hidden><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      <button id="help" class="iconbtn" title="Hilfe">❓</button>
       <button id="sound" class="iconbtn" title="Ton an/aus">🔊</button>
       <button id="reset" class="iconbtn" title="Neu anfangen">♻️</button>
     </header>
@@ -33,6 +36,7 @@
       <canvas id="game"></canvas>
       <div id="toolbar"></div>
       <div id="zoombtns"><button data-zoom="in" title="Hineinzoomen">+</button><button data-zoom="out" title="Herauszoomen">−</button><button data-zoom="fit" title="Zum Hof">⌂</button></div>
+      <div id="placebar" hidden><span id="placeinfo"></span><button id="placeok" data-act="placeok">✔ Bauen</button><button class="ghost" data-act="placecancel" title="Abbrechen">✖</button></div>
       <div id="toasts"></div>
     </main>
     <aside id="panel">
