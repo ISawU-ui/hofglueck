@@ -1,0 +1,166 @@
+:root {
+  --wood: #8a5a32; --wood-d: #5d3a1a; --paper: #fff8e7; --paper-d: #f1e2c2;
+  --ink: #3b2412; --green: #5cb85c; --green-d: #3e8e3e; --gold: #ffd34d; --red: #d9534f;
+}
+* { box-sizing: border-box; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); } /* Notch / Home-Balken */
+html, body { margin: 0; height: 100%; overflow: hidden; background: #3f7a35; color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif; user-select: none; -webkit-user-select: none; }
+button { font: inherit; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+
+#app { display: grid; grid-template-columns: 1fr 340px; grid-template-rows: auto 1fr; height: 100%; }
+#topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(#9b6a3c, #7a4e2a); border-bottom: 4px solid var(--wood-d); color: #fff; box-shadow: 0 3px 8px rgba(0,0,0,.3); }
+.logo { font-weight: 800; font-size: 20px; text-shadow: 0 2px 0 var(--wood-d); white-space: nowrap; }
+.stat { background: rgba(0,0,0,.25); border-radius: 20px; padding: 5px 14px; font-size: 18px; white-space: nowrap; }
+.stat.money b { color: var(--gold); }
+.stat.lvl { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 6px; }
+.lvlbadge { background: var(--gold); color: var(--ink); border-radius: 14px; padding: 2px 10px; font-weight: 700; }
+.xpbar { position: relative; width: 170px; height: 18px; background: rgba(0,0,0,.35); border-radius: 9px; overflow: hidden; }
+.xpbar i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(#8fe0ff, #3aa8e0); transition: width .3s; }
+.xpbar span { position: relative; display: block; text-align: center; font-size: 11px; line-height: 18px; font-weight: 700; text-shadow: 0 1px 2px #000; }
+#goal { flex: 1; font-size: 13px; background: rgba(255,248,231,.92); color: var(--ink); border-radius: 10px; padding: 6px 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iconbtn { background: rgba(0,0,0,.25); border: 0; border-radius: 10px; font-size: 18px; padding: 5px 9px; color: #fff; line-height: 1; }
+.iconbtn svg { display: block; width: 1.1em; height: 1.1em; }
+
+#stage { position: relative; overflow: hidden; min-height: 0; }
+#game { display: block; position: absolute; inset: 0; touch-action: none; }
+#toolbar { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; gap: 6px; padding: 6px;
+  background: rgba(93,58,26,.92); border-radius: 14px; box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+.tool { position: relative; width: 58px; height: 62px; border: 3px solid transparent; border-radius: 10px; background: var(--paper);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0; transition: transform .1s; }
+.tool:hover:not(:disabled) { transform: translateY(-3px); }
+.tool.sel { border-color: var(--gold); background: #fff3c4; transform: translateY(-4px); box-shadow: 0 0 0 2px var(--wood-d); }
+.tool:disabled { opacity: .55; cursor: not-allowed; }
+.tool .ic { font-size: 26px; line-height: 1; }
+.tool small { font-size: 11px; font-weight: 700; }
+.tool i { position: absolute; top: 1px; left: 4px; font-size: 9px; font-style: normal; opacity: .5; }
+
+#zoombtns { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
+#zoombtns button { width: 40px; height: 40px; border: 0; border-radius: 10px; background: rgba(93,58,26,.88); color: #fff;
+  font-size: 22px; font-weight: 700; line-height: 1; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
+#zoombtns button:active { transform: scale(.94); }
+#toasts { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+.toast { background: rgba(40,25,10,.88); color: #fff; padding: 8px 16px; border-radius: 20px; font-size: 14px; animation: pop .25s ease-out; transition: opacity .4s; }
+.toast.good { background: rgba(46,125,50,.95); }
+.toast.bad { background: rgba(183,28,28,.92); }
+.toast.out { opacity: 0; }
+@keyframes pop { from { transform: scale(.7); opacity: 0; } }
+
+#panel { display: flex; flex-direction: column; min-height: 0; background: var(--paper-d); border-left: 4px solid var(--wood-d); }
+#tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; background: var(--wood); }
+#tabs button { position: relative; flex: 1 1 30%; border: 0; border-radius: 8px; padding: 7px 4px; background: #c79a63; color: var(--ink); font-size: 13px; font-weight: 600; }
+#tabs button.sel { background: var(--paper); }
+.badge { position: absolute; top: -6px; right: -4px; background: var(--red); color: #fff; border-radius: 10px; font-size: 11px; padding: 1px 6px; border: 2px solid #fff; animation: bounce 1s infinite; }
+@keyframes bounce { 50% { transform: translateY(-3px); } }
+#content { flex: 1; overflow-y: auto; padding: 10px max(10px, env(safe-area-inset-right, 0px)) 10px 10px; }
+#content h3 { margin: 6px 2px 8px; font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--wood-d); }
+.hint, .empty { font-size: 13px; margin: 2px 2px 10px; }
+.empty { text-align: center; padding: 30px 0; }
+
+.card { display: flex; align-items: center; gap: 10px; background: var(--paper); border-radius: 12px; padding: 9px 10px; margin-bottom: 8px;
+  box-shadow: 0 2px 0 rgba(93,58,26,.25); font-size: 14px; }
+.card.locked { opacity: .55; }
+.card.ready { box-shadow: 0 0 0 3px var(--green), 0 2px 0 rgba(0,0,0,.2); }
+.card.wait { justify-content: center; color: #7a6a5a; font-size: 13px; }
+.card .big { font-size: 30px; width: 38px; text-align: center; }
+.card .grow { flex: 1; min-width: 0; line-height: 1.35; }
+.card small { color: #6d5a48; }
+.card .col { display: flex; flex-direction: column; gap: 4px; }
+.card button, #modalbox button { border: 0; border-radius: 9px; padding: 7px 10px; background: var(--green); color: #fff; font-weight: 700;
+  box-shadow: 0 3px 0 var(--green-d); white-space: nowrap; font-size: 13px; }
+.card button:active:not(:disabled), #modalbox button:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--green-d); }
+.card button:disabled, #modalbox button:disabled { background: #b9ad9d; box-shadow: 0 3px 0 #8f8473; cursor: not-allowed; }
+button.ghost { background: #e9dcc4 !important; color: var(--ink) !important; box-shadow: 0 3px 0 #c4b393 !important; }
+button.danger:not(.ghost) { background: var(--red) !important; box-shadow: 0 3px 0 #a33 !important; }
+button.ghost.danger { color: var(--red) !important; }
+.miss { color: var(--red); font-weight: 700; }
+.order span { display: inline-block; margin-right: 6px; }
+.bar { height: 8px; background: #e2d3b6; border-radius: 4px; overflow: hidden; margin: 4px 0; }
+.bar i { display: block; height: 100%; background: var(--green); }
+.pips { color: var(--green-d); letter-spacing: 2px; font-size: 12px; }
+
+#modal { position: fixed; inset: 0; background: rgba(20,12,4,.55); display: flex; align-items: center; justify-content: center; z-index: 10; padding: 16px; }
+#modal[hidden] { display: none; }
+#modalbox { background: var(--paper); border: 5px solid var(--wood); border-radius: 18px; padding: 20px 24px; min-width: 300px; max-width: 420px;
+  text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.4); animation: pop .25s ease-out; }
+#modalbox h2 { margin: 0 0 10px; }
+#modalbox .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+#modalbox .status { font-size: 15px; }
+.levelup .star { font-size: 64px; animation: spin 1s ease-out; }
+.levelup h2 { font-size: 32px; color: #c98a00; }
+.levelup ul { list-style: none; padding: 0; margin: 0 0 14px; font-size: 16px; line-height: 1.8; }
+.levelup button { font-size: 16px !important; padding: 10px 26px !important; }
+@keyframes spin { from { transform: scale(0) rotate(-180deg); } }
+
+/* Handy im Querformat: Karte füllt den ganzen Bildschirm (auch unter der Kamera-Aussparung),
+   alle Bedienelemente schweben darüber und halten Abstand zu den Rändern (Safe Area).
+   render.js misst diese Elemente und lässt die Kamera den freien Bereich dazwischen nutzen. */
+@media (max-height: 540px) {
+  :root { --gl: max(16px, env(safe-area-inset-left, 0px)); --gr: max(16px, env(safe-area-inset-right, 0px)); }
+  #app { display: block; position: relative; }
+  #stage { position: absolute; inset: 0; }
+
+  /* oben: schwebende Anzeigen statt brauner Leiste */
+  #topbar { position: absolute; z-index: 3; top: 6px; left: calc(var(--gl) + 60px); right: calc(var(--gr) + 58px);
+    gap: 6px; padding: 0; background: none; border: 0; box-shadow: none; pointer-events: none; }
+  #topbar > * { pointer-events: auto; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
+  .logo { display: none; }
+  .stat { font-size: 14px; padding: 3px 10px; background: rgba(60,36,16,.85); }
+  .stat.lvl { padding: 3px 5px; }
+  .lvlbadge { padding: 0 8px; }
+  .xpbar { width: 96px; height: 14px; }
+  .xpbar span { font-size: 9px; line-height: 14px; }
+  #goal { font-size: 11px; padding: 5px 9px; }
+  .iconbtn { font-size: 14px; padding: 4px 7px; background: rgba(60,36,16,.85); }
+
+  /* links: Werkzeuge, senkrecht */
+  #toolbar { left: var(--gl); top: 6px; bottom: 6px; transform: none; flex-direction: column; justify-content: center; gap: 3px;
+    padding: 4px; border-radius: 12px; overflow-y: auto; }
+  .tool { width: 44px; height: 38px; flex: 0 1 38px; min-height: 30px; border-width: 2px; }
+  .tool .ic { font-size: 17px; }
+  .tool small { font-size: 8px; line-height: 1; }
+  .tool i { display: none; }
+  .tool:hover:not(:disabled), .tool.sel { transform: translateX(3px); }
+
+  /* rechts: Symbol-Leiste; das Menü klappt beim Antippen links daneben auf */
+  #panel { position: absolute; z-index: 4; top: 6px; bottom: 6px; right: var(--gr); width: 50px;
+    background: rgba(93,58,26,.92); border: 0; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+  #tabs { flex: 1; flex-direction: column; flex-wrap: nowrap; padding: 5px 4px; gap: 5px; background: none; }
+  #tabs button { flex: 1 1 0; min-height: 0; padding: 0; font-size: 19px; }
+  #tabs .tl { display: none; }
+  #panel:not(.open) #tabs button.sel { background: #c79a63; }
+  #content { display: none; position: absolute; top: 0; bottom: 0; right: calc(100% + 6px); width: min(310px, 58vw); padding: 6px;
+    background: var(--paper-d); border: 3px solid var(--wood-d); border-radius: 12px; box-shadow: -6px 0 18px rgba(0,0,0,.35); }
+  #panel.open #content { display: block; }
+  #content h3 { font-size: 11px; margin: 4px 2px 6px; }
+  .hint { font-size: 11px; }
+  .card { flex-wrap: wrap; gap: 6px 8px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px; }
+  .card .big { font-size: 22px; width: 26px; }
+  .card button { padding: 5px 8px; font-size: 12px; }
+
+  #zoombtns { top: 46px; right: calc(var(--gr) + 58px); gap: 5px; }
+  #zoombtns button { width: 34px; height: 34px; font-size: 18px; }
+  #toasts { top: 46px; }
+
+  #modal { padding: 6px max(6px, env(safe-area-inset-right, 0px)) 6px max(6px, env(safe-area-inset-left, 0px)); }
+  #modalbox { padding: 12px 16px; max-height: 100%; overflow-y: auto; min-width: 0; }
+  #modalbox h2 { font-size: 18px; margin-bottom: 6px; }
+  .levelup .star { font-size: 38px; }
+  .levelup h2 { font-size: 24px; }
+  .levelup ul { line-height: 1.4; font-size: 14px; }
+  .toast { font-size: 12px; padding: 5px 12px; }
+}
+
+/* Hochformat (Handy/Tablet): Hinweis zum Drehen */
+#rotate { display: none; }
+@media (orientation: portrait) and (max-width: 1100px) {
+  #rotate { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; padding: 24px; text-align: center; background: #3f7a35; color: #fff; }
+  #rotate .phone { font-size: 72px; animation: turn 2.4s ease-in-out infinite; }
+  #rotate p { margin: 0; font-size: 18px; line-height: 1.5; max-width: 22em; }
+  #rotate b { font-size: 24px; color: var(--gold); }
+}
+@keyframes turn { 0%, 25% { transform: rotate(0deg); } 55%, 100% { transform: rotate(-90deg); } }
+@media (prefers-reduced-motion: reduce) { #rotate .phone { animation: none; transform: rotate(-90deg); } }

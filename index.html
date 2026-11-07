@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Hofglück</title>
+  <!-- App-Modus: vom Home-Bildschirm aus randlos wie eine App -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#3f7a35">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Hofglück">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="logo">🚜 Hofglück</div>
+      <div class="stat money">💰 <b id="money">0</b></div>
+      <div class="stat lvl">
+        <span class="lvlbadge">⭐ <b id="level">1</b></span>
+        <div class="xpbar"><i id="xpfill"></i><span id="xptext"></span></div>
+      </div>
+      <div id="goal"></div>
+      <button id="fullscreen" class="iconbtn" title="Vollbild" aria-label="Vollbild" hidden><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      <button id="sound" class="iconbtn" title="Ton an/aus">🔊</button>
+      <button id="reset" class="iconbtn" title="Neu anfangen">♻️</button>
+    </header>
+    <main id="stage">
+      <canvas id="game"></canvas>
+      <div id="toolbar"></div>
+      <div id="zoombtns"><button data-zoom="in" title="Hineinzoomen">+</button><button data-zoom="out" title="Herauszoomen">−</button><button data-zoom="fit" title="Zum Hof">⌂</button></div>
+      <div id="toasts"></div>
+    </main>
+    <aside id="panel">
+      <nav id="tabs"></nav>
+      <div id="content"></div>
+    </aside>
+  </div>
+  <div id="modal" hidden><div id="modalbox"></div></div>
+  <div id="rotate"><div class="phone">📱</div><p><b>Bitte dreh dein Handy</b><br>Hofglück wird im Querformat gespielt.</p></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/fx.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
