@@ -912,7 +912,7 @@ function drawTown(T) {
   ctx.restore();
 
   if (atlasReady) { // Karren, Fässer, Kisten an der Straße – mit jedem Projekt mehr Leben (vor den Gebäuden gezeichnet, damit Schilder frei bleiben)
-    const sp = [2, 6, 3, 8, 7, 9], nd = Math.min(sp.length, 2 + Object.keys(PROJECTS).filter(built).length);
+    const sp = [2, 6, 3, 8, 7, 9], nd = Math.min(sp.length, Object.keys(PROJECTS).filter(built).length); // leer am Anfang, wächst mit jedem Projekt
     for (let i = 0; i < nd; i++) spr(ctx, TOWN_DECO[i][0], TOWN_DECO[i][1], (TOWN_X0 + sp[i] + 0.5) * TILE, 13 * TILE + 44, i % 2 === 1);
     drawPeoplePixel(T); // Bewohner vor den Schildern zeichnen, damit die Namen lesbar bleiben
   }
@@ -1001,7 +1001,7 @@ function drawProjectPixel(id, r, T) {
 }
 const TOWN_DECO = [['karren', 0], ['fass', 0], ['kisten', 0], ['karren', 1], ['schubkarre', 0], ['tisch', 0]];
 function drawPeoplePixel(T) {
-  const n = 3 + Object.keys(PROJECTS).filter(built).length * 2;
+  const n = Object.keys(PROJECTS).filter(built).length * 2; // erst mit dem ersten Stadtprojekt ziehen Leute ein
   for (let i = 0; i < n; i++) {
     const sp = 0.012 + hash(i, 21) * 0.012, q = (T * sp + hash(i, 22)) % 1, back = q > 0.5, u = back ? (1 - q) * 2 : q * 2;
     const who = 'buerger' + (1 + (i % 5)), f = Math.floor(T * 8 + i * 3);
@@ -1080,7 +1080,7 @@ function drawProject(id, r, T) {
 }
 
 function drawPeople(T) {
-  const n = 3 + Object.keys(PROJECTS).filter(built).length * 2;
+  const n = Object.keys(PROJECTS).filter(built).length * 2; // erst mit dem ersten Stadtprojekt ziehen Leute ein
   const skins = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac'];
   const shirts = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#2ecc71', '#e67e22', '#1abc9c'];
   for (let i = 0; i < n; i++) {
