@@ -458,13 +458,11 @@ function showIntro(i) {
 }
 function showNews() {
   openModal(`<div class="intro"><div class="ico">🎉</div><h2>Neu auf dem Hof!</h2><ul class="news">
-    <li>🎣 <b>Angeln</b> am Teich (ab Level 2)</li>
-    <li>🍎 <b>Obstbäume</b> – einmal pflanzen, immer wieder ernten (ab Level 4)</li>
-    <li>🏘️ Die Stadt <b>${TOWN_NAME}</b>: baue sie mit deinen Waren aus (🏘️-Reiter)</li>
-    <li>🐴 <b>Pferdezucht</b> mit seltenen Fellfarben (ab Level 11)</li>
-    <li>✋ <b>Umsehen</b>-Werkzeug: nichts wird aus Versehen gesät</li>
-    <li>🔨 Bauen & Abreißen jetzt mit Vorschau und Nachfrage</li>
-    <li>📉 <b>Markt</b>: viel vom Gleichen verkaufen drückt kurz den Preis – Aufträge zahlen immer voll</li>
+    <li>🎨 <b>Neue Grafik</b>: Hof, Tiere und die Stadt ${TOWN_NAME} in liebevoller Pixel-Art</li>
+    <li>🏘️ Die Stadt füllt sich: mit jedem Stadtprojekt ziehen neue Bewohner ein</li>
+    <li>🌾 <b>Fairere Pflanzen</b>: Weizen braucht jetzt 30 s. Lange Pflanzen wie 🎃 und 🍓 bringen viel pro Ernte – ideal vor einer Pause</li>
+    <li>📋 <b>Abwechslungsreichere Aufträge</b>: weniger Weizen, mehr von deinen neuen Waren – und etwas mehr XP</li>
+    <li>🐔 Tiere, Obstbäume und Werkstätten brauchen etwas länger, dafür lohnt sich jedes Level mehr</li>
   </ul><button data-act="newsdone">Super!</button></div>`, 'news');
 }
 

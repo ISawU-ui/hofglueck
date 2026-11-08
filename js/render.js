@@ -1174,7 +1174,7 @@ function drawHover(T) {
     ctx.lineWidth = 3; rr(h.x * TILE + 2, h.y * TILE + 2, TILE - 4, TILE - 4, 7); ctx.stroke();
   }
   if (t.c && t.p < 1) {
-    const c = CROPS[t.c], left = Math.ceil((1 - t.p) * c.time / growMul() / (boostMap && boostMap[idx(h.x, h.y)] ? 1.5 : 1));
+    const c = CROPS[t.c], left = Math.ceil((1 - t.p) * c.time / growMul() / (boostMap && boostMap[idx(h.x, h.y)] ? SPRINKLER_BOOST : 1));
     outlinedText(ctx, fmtTime(left), h.x * TILE + TILE / 2, h.y * TILE - 6, 12, '#fff');
   }
 }

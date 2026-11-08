@@ -41,67 +41,75 @@ const ITEMS = {
 };
 
 // Pflanzen: Saatgut-Kosten, Wachstum in Sekunden, XP pro Ernte
+// Balancing (Update 4): kurze Pflanzen bringen pro Minute leicht am meisten (dafür oft klicken),
+// lange bringen pro Ernte mehr, pro Minute aber weniger → gut für Pausen, aber nicht übermächtig.
+// Gewinn pro Feld und Minute: Weizen 6,0 · Karotte 6,4 · Mais 5,6 · Kartoffel 5,5 · Tomate 5,3 · Kürbis 5,0 · Erdbeere 4,7
 const CROPS = {
-  weizen:    { level: 1,  cost: 1,  time: 10,  xp: 1 },
-  karotte:   { level: 2,  cost: 4,  time: 25,  xp: 2 },
-  mais:      { level: 3,  cost: 7,  time: 50,  xp: 3 },
-  kartoffel: { level: 5,  cost: 14, time: 100, xp: 5 },
-  tomate:    { level: 7,  cost: 22, time: 160, xp: 7 },
-  kuerbis:   { level: 9,  cost: 38, time: 280, xp: 11 },
-  erdbeere:  { level: 12, cost: 65, time: 450, xp: 16 },
+  weizen:    { level: 1,  cost: 1,  time: 30,  xp: 1 },
+  karotte:   { level: 2,  cost: 3,  time: 75,  xp: 2 },
+  mais:      { level: 3,  cost: 5,  time: 150, xp: 4 },
+  kartoffel: { level: 5,  cost: 14, time: 240, xp: 6 },
+  tomate:    { level: 7,  cost: 26, time: 360, xp: 8 },
+  kuerbis:   { level: 9,  cost: 50, time: 600, xp: 12 },
+  erdbeere:  { level: 12, cost: 95, time: 960, xp: 18 },
 };
+// Stärke von Sprinkler und Upgrades (pro Stufe); Texte unten rechnen damit
+const SPRINKLER_BOOST = 1.3; // Pflanzen im Umkreis wachsen 30 % schneller
+const DUENGER_STEP = 0.06;   // Dünger: pro Stufe 6 % kürzere Wachstumszeit (max. 5 Stufen = 30 %)
+const FUTTER_STEP = 0.06;    // Kraftfutter: Tiere & Gebäude pro Stufe 6 % schneller
+const GLUECK_STEP = 0.05;    // Glückliche Ernte: pro Stufe 5 % Chance auf doppelte Ernte
 
 // Gebäude. kind: 'animal' (Tiere fressen und produzieren), 'factory' (Rezept), 'boost'
 const BUILDINGS = {
   huehnerstall: {
     name: 'Hühnerstall', icon: '🐔', kind: 'animal', level: 2, cost: 120, w: 2, h: 2,
     animal: 'huhn', animalName: 'Huhn', animalCost: 35, maxAnimals: 6,
-    feed: 'weizen', feedPer: 1, out: 'ei', time: 30, xp: 2,
+    feed: 'weizen', feedPer: 1, out: 'ei', time: 90, xp: 2,
     color: '#c98b4a', ground: '#d9c27a',
   },
   muehle: {
     name: 'Mühle', icon: '🌬️', kind: 'factory', level: 3, cost: 250, w: 2, h: 2,
-    in: { weizen: 3 }, out: 'mehl', time: 20, xp: 3, color: '#b8a089',
+    in: { weizen: 3 }, out: 'mehl', time: 40, xp: 3, color: '#b8a089',
   },
   kuhstall: {
     name: 'Kuhstall', icon: '🐄', kind: 'animal', level: 4, cost: 450, w: 2, h: 2,
     animal: 'kuh', animalName: 'Kuh', animalCost: 120, maxAnimals: 4,
-    feed: 'mais', feedPer: 1, out: 'milch', time: 60, xp: 5,
+    feed: 'mais', feedPer: 1, out: 'milch', time: 150, xp: 6,
     color: '#a0522d', ground: '#9ccf6a',
   },
   sprinkler: {
     name: 'Sprinkler', icon: '💦', kind: 'boost', level: 5, cost: 300, w: 1, h: 1,
-    desc: 'Pflanzen im Umkreis wachsen 50 % schneller',
+    desc: 'Pflanzen im Umkreis wachsen 30 % schneller',
   },
   baeckerei: {
     name: 'Bäckerei', icon: '🥖', kind: 'factory', level: 6, cost: 800, w: 2, h: 2,
-    in: { mehl: 1, ei: 1 }, out: 'brot', time: 45, xp: 6, color: '#d98c5f',
+    in: { mehl: 1, ei: 1 }, out: 'brot', time: 90, xp: 6, color: '#d98c5f',
   },
   schafweide: {
     name: 'Schafweide', icon: '🐑', kind: 'animal', level: 8, cost: 1100, w: 2, h: 2,
     animal: 'schaf', animalName: 'Schaf', animalCost: 250, maxAnimals: 4,
-    feed: 'karotte', feedPer: 2, out: 'wolle', time: 100, xp: 8,
+    feed: 'karotte', feedPer: 2, out: 'wolle', time: 300, xp: 10,
     color: '#7a6a5a', ground: '#8fcf5a',
   },
   kaeserei: {
     name: 'Käserei', icon: '🧀', kind: 'factory', level: 10, cost: 2000, w: 2, h: 2,
-    in: { milch: 2 }, out: 'kaese', time: 90, xp: 10, color: '#e0b23c',
+    in: { milch: 2 }, out: 'kaese', time: 180, xp: 10, color: '#e0b23c',
   },
   saftpresse: {
     name: 'Saftpresse', icon: '🧃', kind: 'factory', level: 9, cost: 1500, w: 2, h: 2,
-    in: { apfel: 3 }, out: 'apfelsaft', time: 50, xp: 6, color: '#8fbf4a',
+    in: { apfel: 3 }, out: 'apfelsaft', time: 100, xp: 6, color: '#8fbf4a',
   },
   pferdestall: {
     name: 'Pferdestall', icon: '🐴', kind: 'horse', level: 11, cost: 2500, w: 2, h: 2,
     animalName: 'Pferd', animalCost: 600, maxAnimals: 4,
-    in: { karotte: 4, mais: 3 }, time: 240, xp: 25, color: '#8d5b3a', ground: '#b9d77a',
+    in: { karotte: 4, mais: 3 }, time: 600, xp: 30, color: '#8d5b3a', ground: '#b9d77a',
     desc: 'Zwei Pferde bekommen Fohlen – mit Glück in seltenen Fellfarben',
   },
   // Obstbäume: einmal pflanzen, tragen dann immer wieder Früchte (kein Saatgut nötig)
-  apfelbaum:    { name: 'Apfelbaum',    icon: '🍎', kind: 'tree', level: 4,  cost: 180,  w: 1, h: 1, out: 'apfel',    qty: 2, time: 90,  xp: 1, leaf: '#3f9a3a' },
-  kirschbaum:   { name: 'Kirschbaum',   icon: '🍒', kind: 'tree', level: 7,  cost: 450,  w: 1, h: 1, out: 'kirsche',  qty: 3, time: 240, xp: 3, leaf: '#2f7d3a' },
-  pfirsichbaum: { name: 'Pfirsichbaum', icon: '🍑', kind: 'tree', level: 13, cost: 1400, w: 1, h: 1, out: 'pfirsich', qty: 3, time: 420, xp: 6, leaf: '#4c9a42' },
-  orangenbaum:  { name: 'Orangenbaum',  icon: '🍊', kind: 'tree', level: 15, cost: 3000, w: 1, h: 1, out: 'orange',   qty: 4, time: 600, xp: 9, leaf: '#2e8a4a' },
+  apfelbaum:    { name: 'Apfelbaum',    icon: '🍎', kind: 'tree', level: 4,  cost: 180,  w: 1, h: 1, out: 'apfel',    qty: 2, time: 200, xp: 1, leaf: '#3f9a3a' },
+  kirschbaum:   { name: 'Kirschbaum',   icon: '🍒', kind: 'tree', level: 7,  cost: 450,  w: 1, h: 1, out: 'kirsche',  qty: 3, time: 480, xp: 3, leaf: '#2f7d3a' },
+  pfirsichbaum: { name: 'Pfirsichbaum', icon: '🍑', kind: 'tree', level: 13, cost: 1400, w: 1, h: 1, out: 'pfirsich', qty: 3, time: 900, xp: 6, leaf: '#4c9a42' },
+  orangenbaum:  { name: 'Orangenbaum',  icon: '🍊', kind: 'tree', level: 15, cost: 3000, w: 1, h: 1, out: 'orange',   qty: 4, time: 1500, xp: 9, leaf: '#2e8a4a' },
 };
 
 // Pferde-Fellfarben: tier 0 häufig … 3 legendär
@@ -115,14 +123,14 @@ const COATS = {
   einhorn:  { name: 'Einhorn', tier: 3, body: '#ffffff', mane: 'rainbow' },
 };
 const COAT_TIERS = [
-  { name: 'häufig',      weight: 62, value: 350,  color: '#7a6a5a' },
-  { name: 'selten',      weight: 27, value: 750,  color: '#2f7fc1' },
-  { name: 'sehr selten', weight: 9,  value: 1600, color: '#9b4dca' },
-  { name: 'legendär',    weight: 2,  value: 6000, color: '#d4a017' },
+  { name: 'häufig',      weight: 62, value: 300,  color: '#7a6a5a' },
+  { name: 'selten',      weight: 27, value: 650,  color: '#2f7fc1' },
+  { name: 'sehr selten', weight: 9,  value: 1400, color: '#9b4dca' },
+  { name: 'legendär',    weight: 2,  value: 5000, color: '#d4a017' },
 ];
 
 // Teich: Fische wachsen nach, Fang ist Zufall
-const POND = { level: 2, max: 5, regen: 90, xp: 2 };
+const POND = { level: 2, max: 5, regen: 120, xp: 2 };
 const FISH = [
   { id: 'fisch', weight: 58 }, { id: 'krebs', weight: 20 }, { id: 'tropenfisch', weight: 8 }, { id: 'stiefel', weight: 14 },
 ];
@@ -145,15 +153,15 @@ const PROJECTS = {
 
 // Globale Verbesserungen, jede Stufe wird teurer
 const UPGRADES = {
-  duenger:  { name: 'Dünger',          icon: '🧪', level: 3, base: 150, max: 5, desc: 'Pflanzen wachsen 10 % schneller' },
+  duenger:  { name: 'Dünger',          icon: '🧪', level: 3, base: 150, max: 5, desc: 'Pflanzen wachsen 6 % schneller' },
   haendler: { name: 'Guter Händler',   icon: '🤝', level: 4, base: 250, max: 5, desc: '+10 % Verkaufspreis' },
-  glueck:   { name: 'Glückliche Ernte', icon: '🍀', level: 6, base: 400, max: 5, desc: '+8 % Chance auf doppelte Ernte' },
-  futter:   { name: 'Kraftfutter',     icon: '🥫', level: 5, base: 350, max: 5, desc: 'Tiere & Gebäude 10 % schneller' },
+  glueck:   { name: 'Glückliche Ernte', icon: '🍀', level: 6, base: 400, max: 5, desc: '+5 % Chance auf doppelte Ernte' },
+  futter:   { name: 'Kraftfutter',     icon: '🥫', level: 5, base: 350, max: 5, desc: 'Tiere & Gebäude 6 % schneller' },
 };
 const upgradeCost = (id, lvl) => Math.round(UPGRADES[id].base * Math.pow(2.2, lvl) / 10) * 10;
 
 // XP für den nächsten Level
-const xpForLevel = (lvl) => Math.floor(25 * lvl * lvl + 10);
+const xpForLevel = (lvl) => Math.floor(22 * lvl * lvl + 10); // Update 4: etwas flacher, weil Pflanzen jetzt länger wachsen
 
 // Landstück-Preis: k = Anzahl schon dazugekaufter Stücke
 const parcelCost = (k) => Math.round(200 * Math.pow(1.85, k) / 10) * 10;

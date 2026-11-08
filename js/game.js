@@ -2,7 +2,7 @@
 'use strict';
 
 const SAVE_KEY = 'farmspiel_v1';
-const NEWS_VERSION = 2; // erhöhen, wenn es für bestehende Spieler „Neu im Spiel“ zu zeigen gibt
+const NEWS_VERSION = 3; // erhöhen, wenn es für bestehende Spieler „Neu im Spiel“ zu zeigen gibt
 const DECOR = [
   { id: 'haus',    name: 'Wohnhaus',      x: 0, y: 1,  w: 3, h: 3 },
   { id: 'tafel',   name: 'Auftragstafel', x: 0, y: 5,  w: 3, h: 2 },
@@ -72,8 +72,8 @@ function resetGame() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} n
 
 // ---------- Multiplikatoren ----------
 const upg = (id) => G.upgrades[id] || 0;
-const growMul = () => 1 / (1 - 0.1 * upg('duenger'));
-const prodMul = () => 1 / (1 - 0.1 * upg('futter'));
+const growMul = () => 1 / (1 - DUENGER_STEP * upg('duenger'));
+const prodMul = () => 1 / (1 - FUTTER_STEP * upg('futter'));
 const built = (id) => !!G.town[id];
 const priceMul = () => 1 + 0.1 * upg('haendler') + (built('festplatz') ? 0.1 : 0);
 const xpMul = () => 1 + (built('schule') ? 0.1 : 0) + (built('rathaus') ? 0.15 : 0);
@@ -109,7 +109,7 @@ function update(dt) {
   const gm = growMul();
   for (let i = 0; i < G.tiles.length; i++) {
     const t = G.tiles[i];
-    if (t.c && t.p < 1) t.p = Math.min(1, t.p + dt * gm * (boostMap[i] ? 1.5 : 1) / CROPS[t.c].time);
+    if (t.c && t.p < 1) t.p = Math.min(1, t.p + dt * gm * (boostMap[i] ? SPRINKLER_BOOST : 1) / CROPS[t.c].time);
   }
   const pm = prodMul();
   for (const b of Object.values(G.buildings)) {
@@ -187,7 +187,7 @@ function doAction(x, y, action, seed) {
       fxDust(cx, cy, '#6b4423'); sfx('plant'); return true;
     }
     case 'harvest': {
-      const id = t.c, lucky = Math.random() < 0.08 * upg('glueck');
+      const id = t.c, lucky = Math.random() < GLUECK_STEP * upg('glueck');
       const n = lucky ? 2 : 1;
       addInv(id, n); G.stats.harvested += n;
       t.c = null; t.p = 0;
@@ -365,17 +365,30 @@ function orderPool() {
   if (G.stats.fished >= 3) pool.push('fisch');
   return pool;
 }
+// Ab welchem Level es eine Ware gibt (Aufträge wählen Neues öfter als Weizen)
+function itemLevel(id) {
+  if (CROPS[id]) return CROPS[id].level;
+  if (id === 'fisch') return POND.level;
+  let l = 99;
+  for (const d of Object.values(BUILDINGS)) if (d.out === id) l = Math.min(l, d.level);
+  return l === 99 ? 1 : l;
+}
 function makeOrder() {
-  const pool = orderPool().sort(() => Math.random() - 0.5);
+  const pool = orderPool();
   const types = Math.min(pool.length, 1 + Math.floor(Math.random() * Math.min(3, 1 + G.level / 3)));
   const target = (15 + G.level * 22) * (0.7 + Math.random() * 0.6);
+  const maxQ = 3 + Math.floor(G.level / 2); // höchstens so viele Stück pro Ware – sonst bestehen Aufträge aus Bergen Weizen
+  const left = pool.map((id) => ({ id, w: itemLevel(id) + 2 })); // Gewicht: später freigeschaltete Waren kommen öfter
   const items = {}; let value = 0;
   for (let i = 0; i < types; i++) {
-    const id = pool[i], q = Math.max(1, Math.min(8 + 2 * G.level, Math.round(target / types / ITEMS[id].price)));
+    let r = Math.random() * left.reduce((sum, x) => sum + x.w, 0), k = 0;
+    while (k < left.length - 1 && (r -= left[k].w) >= 0) k++;
+    const id = left.splice(k, 1)[0].id;
+    const q = Math.max(1, Math.min(maxQ, Math.round(target / types / ITEMS[id].price)));
     items[id] = q; value += q * ITEMS[id].price;
   }
   const names = ['Bäcker Bruno', 'Oma Hilde', 'Café Sonne', 'Markt Müller', 'Koch Luigi', 'Hotel Alpenblick', 'Familie Schmidt', 'Hofladen Lisa'];
-  return { who: names[Math.floor(Math.random() * names.length)], items, money: Math.round(value * 1.6 + 10), xp: Math.round(value / 6) + 3 };
+  return { who: names[Math.floor(Math.random() * names.length)], items, money: Math.round(value * 1.6 + 10), xp: Math.round(value / 5) + 4 };
 }
 function completeOrder(i) {
   const o = G.orders[i];
