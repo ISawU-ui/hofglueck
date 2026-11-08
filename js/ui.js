@@ -385,7 +385,7 @@ function onFoal(b, isNew) {
     if (!cv.isConnected) return;
     g.clearRect(0, 0, 220, 140);
     g.fillStyle = '#bfe39a'; g.beginPath(); g.ellipse(110, 112, 90, 18, 0, 0, 7); g.fill();
-    drawHorse(g, c, 110, 96, 1, (now - t0) / 1000, 3.2, true);
+    drawHorse(g, c, 110, atlasReady ? 108 : 96, 1, (now - t0) / 1000, 3.2, true, true);
     requestAnimationFrame(anim);
   })(t0);
 }

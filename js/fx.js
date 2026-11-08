@@ -62,7 +62,9 @@ function drawEmoji(ctx, e, x, y, size) {
     g.fillText(e, 48, 54);
     emojiCache[key] = c;
   }
+  const sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true; // Emojis weich, auch zwischen Pixel-Grafik
   ctx.drawImage(c, x - size / 2, y - size / 2, size, size);
+  ctx.imageSmoothingEnabled = sm;
 }
 
 // ---------- Sound: kleine Synth-Töne, keine Dateien nötig ----------

@@ -122,6 +122,46 @@ function shade(hex, amt) { // Farbe aufhellen (amt > 0) oder abdunkeln (amt < 0)
   return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
 }
 
+// ---------- Pixel-Grafik (Sammelbild aus make_atlas.py, Stil „Pixel-Hof“) ----------
+// Fehlt js/atlas.js, zeichnet das Spiel automatisch wieder die alte Canvas-/Emoji-Grafik.
+const ATL = new Image();
+let atlasReady = false;
+if (typeof ATLAS_SRC !== 'undefined') { ATL.onload = () => { atlasReady = true; if (canvas) buildGround(); }; ATL.src = ATLAS_SRC; }
+const PX = { grass: '#6ea24b', dirt: '#b8854b', dirtDark: '#9a6a40', water: '#5472bc' };
+// Sprite zeichnen: (x, y) = unten Mitte (Füße), flip = gespiegelt, sc = Vergrößerung
+function spr(g, name, i, x, y, flip = false, sc = 1) {
+  const set = atlasReady && SPR[name]; if (!set) return false;
+  const [sx, sy, w, h, ox, oy, W0, H0] = set[((i % set.length) + set.length) % set.length];
+  const dy = Math.round(y + (oy - H0) * sc);
+  if (flip) {
+    const dx = Math.round(x + (W0 / 2 - ox - w) * sc);
+    g.save(); g.translate(dx + w * sc, 0); g.scale(-1, 1); g.drawImage(ATL, sx, sy, w, h, 0, dy, w * sc, h * sc); g.restore();
+  } else g.drawImage(ATL, sx, sy, w, h, Math.round(x + (ox - W0 / 2) * sc), dy, w * sc, h * sc);
+  return true;
+}
+// Höhe eines Sprites über seinem Fußpunkt (für Blasen über dem Dach)
+const sprTop = (name, i = 0) => { const f = atlasReady && SPR[name] && SPR[name][i]; return f ? f[7] - f[5] : 0; };
+// 9-teiliger Rahmen aus 16-px-Stücken (Zaun, Teichufer): Ecken + Kanten werden wiederholt
+function nineSlice(g, name, i, x, y, w, h, skipCenter = true) {
+  const f = SPR[name][i], [sx, sy] = f, nx = Math.round(w / 16), ny = Math.round(h / 16);
+  for (let j = 0; j < ny; j++) for (let k = 0; k < nx; k++) {
+    const c = k === 0 ? 0 : k === nx - 1 ? 2 : 1, r = j === 0 ? 0 : j === ny - 1 ? 2 : 1;
+    if (skipCenter && c === 1 && r === 1) continue;
+    g.drawImage(ATL, sx + c * 16, sy + r * 16, 16, 16, x + k * 16, y + j * 16, 16, 16);
+  }
+}
+// nur obere / untere Hälfte eines Zauns (damit Tiere zwischen den Zaunteilen stehen)
+function fenceRing(g, x, y, w, h, part) {
+  const f = SPR.fence9[0], [sx, sy] = f, nx = Math.round(w / 16), ny = Math.round(h / 16);
+  for (let j = 0; j < ny; j++) for (let k = 0; k < nx; k++) {
+    const c = k === 0 ? 0 : k === nx - 1 ? 2 : 1, r = j === 0 ? 0 : j === ny - 1 ? 2 : 1;
+    if (c === 1 && r === 1) continue;
+    const front = j >= ny / 2;
+    if ((part === 'back' && front) || (part === 'front' && !front)) continue;
+    g.drawImage(ATL, sx + c * 16, sy + r * 16, 16, 16, x + k * 16, y + j * 16, 16, 16);
+  }
+}
+
 // ---------- Hauptfunktion ----------
 function draw(time) {
   const T = time / 1000;
@@ -131,7 +171,11 @@ function draw(time) {
   ctx.setTransform(s, 0, 0, s, view.ox * view.dpr, view.oy * view.dpr);
   const vr = visibleRect();
 
+  // Pixel-Grafik: scharfe Pixel, nur beim starken Verkleinern weich (sonst flimmert es)
+  ctx.imageSmoothingEnabled = !atlasReady || s < 2;
   ctx.drawImage(groundCv, 0, 0, WORLD_W, WORLD_H);
+  ctx.imageSmoothingEnabled = !atlasReady || s < 0.9;
+  if (atlasReady) drawTrees(vr, 0);
   if (vr.x0 < 3 * TILE) drawDecor(T);
   drawParcels();
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) drawCrop(x, y, T);
@@ -139,7 +183,7 @@ function draw(time) {
   const bs = Object.values(G.buildings).sort((a, b) => a.y - b.y);
   for (const b of bs) drawBuilding(b, T);
   for (const b of bs) drawBubble(b, T);
-  drawTrees(vr);
+  drawTrees(vr, atlasReady ? 15 : null);
   drawAmbient(T);
   drawHover(T);
   drawPointer(T);
@@ -157,6 +201,7 @@ function buildGround() {
   groundCv.width = WORLD_W * GS; groundCv.height = WORLD_H * GS;
   const g = groundCv.getContext('2d');
   g.scale(GS, GS);
+  if (atlasReady) { buildGroundPixel(g); return; }
   g.fillStyle = '#69bb4d'; g.fillRect(0, 0, WORLD_W, WORLD_H);
   // weiche helle/dunkle Flecken, damit die Wiese lebendig wirkt
   for (let i = 0; i < 1100; i++) {
@@ -216,7 +261,81 @@ function buildGround() {
   }
 }
 
-function drawTrees(vr) {
+// Pixel-Boden: Wiese mit Grasbüscheln, Feldwege, Pflaster in der Stadt
+function buildGroundPixel(g) {
+  g.imageSmoothingEnabled = false;
+  g.fillStyle = PX.grass; g.fillRect(0, 0, WORLD_W, WORLD_H);
+  for (let i = 0; i < 700; i++) { // ganz leichte helle/dunkle Flecken
+    const x = Math.round(hash(i, 1) * WORLD_W), y = Math.round(hash(i, 2) * WORLD_H), r = 10 + hash(i, 3) * 26;
+    g.fillStyle = hash(i, 4) > 0.5 ? 'rgba(150,195,95,0.10)' : 'rgba(70,120,50,0.10)';
+    g.beginPath(); g.ellipse(x, y, r, r * 0.6, 0, 0, 7); g.fill();
+  }
+  const flowers = ['#f4efd8', '#f2b6c6', '#f6d76b', '#c7b8f0'];
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) {
+    if (isPath(x, y) || isCobble(x, y)) continue;
+    const px = x * TILE, py = y * TILE;
+    for (let k = 0; k < 2; k++) {
+      const h = hash(x * 3 + k, y * 5 + 1); if (h < 0.45) continue;
+      spr(g, 'tuft', Math.floor(h * 60), px + 8 + Math.round(hash(x + k, y * 7) * 32), py + 14 + Math.round(hash(y + k, x * 11) * 32));
+    }
+    const f = hash(x, y + 9);
+    if (f > 0.9) { // Pixel-Blümchen
+      const fx = px + 8 + Math.round(hash(x, y * 2) * 30), fy = py + 8 + Math.round(hash(y, x * 2) * 30);
+      g.fillStyle = flowers[Math.floor(hash(y, x + 3) * 4)];
+      g.fillRect(fx - 2, fy, 2, 2); g.fillRect(fx + 2, fy, 2, 2); g.fillRect(fx, fy - 2, 2, 2); g.fillRect(fx, fy + 2, 2, 2);
+      g.fillStyle = '#e8a33a'; g.fillRect(fx, fy, 2, 2);
+    } else if (f < 0.03) spr(g, 'spot', Math.floor(hash(y, x) * 4), px + 24, py + 40);
+  }
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) { // Feldwege
+    if (!isPath(x, y)) continue;
+    const px = x * TILE, py = y * TILE;
+    g.fillStyle = PX.dirt; g.fillRect(px, py, TILE, TILE);
+    g.fillStyle = 'rgba(120,80,45,0.45)';
+    for (let i = 0; i < 6; i++) g.fillRect(px + Math.round(hash(x + i, y * 3) * 44), py + Math.round(hash(x * 7, y + i) * 44), 2 + (i % 2) * 2, 2);
+    g.fillStyle = 'rgba(235,190,120,0.35)';
+    for (let i = 0; i < 4; i++) g.fillRect(px + Math.round(hash(x + i, y * 5) * 44), py + Math.round(hash(x * 5, y + i) * 44), 2, 2);
+    if (y === 14) { g.fillStyle = 'rgba(120,80,45,0.28)'; g.fillRect(px, py + 14, TILE, 4); g.fillRect(px, py + 30, TILE, 4); }
+  }
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) { // Grasrand am Weg
+    if (!isPath(x, y)) continue;
+    const px = x * TILE, py = y * TILE;
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= WORLD_TW || ny >= MAP_H || isPath(nx, ny) || isCobble(nx, ny)) continue;
+      g.fillStyle = PX.grass;
+      for (let k = 0; k < 8; k++) {
+        const t = k * 6 + Math.round(hash(x * 9 + k, y + dx) * 3), d = 2 + Math.round(hash(k, x + y * 3 + dy) * 3);
+        if (dy) g.fillRect(px + t, dy < 0 ? py : py + TILE - d, 6, d); else g.fillRect(dx < 0 ? px : px + TILE - d, py + t, d, 6);
+      }
+    }
+  }
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) { // Pflaster in den Steinfarben von Paket A
+    if (!isCobble(x, y)) continue;
+    const px = x * TILE, py = y * TILE;
+    if (SPR.pflaster) { const p = SPR.pflaster[0]; g.drawImage(ATL, p[0] + (x % 2) * 48, p[1] + (y % 2) * 48, 48, 48, px, py, TILE, TILE); continue; }
+    g.fillStyle = '#5b5560'; g.fillRect(px, py, TILE, TILE);
+    for (let r = 0; r < 4; r++) for (let c = -1; c < 4; c++) {
+      const sx = px + c * 14 + (r % 2) * 7 + 1, sy = py + r * 12 + 1, v = hash(x * 13 + c, y * 7 + r);
+      const x0 = Math.max(px, sx), x1 = Math.min(px + TILE, sx + 12);
+      if (x1 - x0 < 2) continue;
+      g.fillStyle = v < 0.5 ? '#8697ba' : v < 0.8 ? '#7d8bab' : '#8fa3c4'; g.fillRect(x0, sy, x1 - x0, 10);
+      g.fillStyle = 'rgba(200,220,245,0.45)'; g.fillRect(x0, sy, x1 - x0, 2);
+      g.fillStyle = 'rgba(40,40,60,0.35)'; g.fillRect(x0, sy + 8, x1 - x0, 2);
+    }
+  }
+}
+
+function drawTrees(vr, onlyRow) {
+  if (atlasReady) { // Waldrand oben und unten: Pixel-Bäume und Büsche
+    for (let x = 0; x < WORLD_TW; x++) {
+      const y = onlyRow, h = hash(x, y + 50), px = x * TILE + 24 + Math.round((h - 0.5) * 14);
+      if (px < vr.x0 - 60 || px > vr.x1 + 60) continue;
+      const by = y * TILE + (y === 0 ? 40 : 46);
+      if (h > 0.45) spr(ctx, 'wald', Math.floor(hash(x, y + 51) * 4), px, by, hash(x, y + 52) > 0.5);
+      else spr(ctx, 'busch', Math.floor(hash(x, y + 51) * 6), px, by - 4, hash(x, y + 52) > 0.5);
+    }
+    return;
+  }
   for (let x = 0; x < WORLD_TW; x++) for (const y of [0, 15]) {
     const h = hash(x, y + 50), px = x * TILE + 24 + (h - 0.5) * 14, py = y * TILE + (y === 0 ? 30 : 34);
     if (px < vr.x0 - 40 || px > vr.x1 + 40) continue;
@@ -239,6 +358,10 @@ function drawTrees(vr) {
 function drawDecor(T) {
   for (const d of DECOR) {
     const x = d.x * TILE, y = d.y * TILE, w = d.w * TILE, h = d.h * TILE;
+    if (atlasReady && drawDecorPixel(d, x, y, w, h, T)) {
+      outlinedText(ctx, d.id === 'teich' && G.level >= POND.level ? 'Teich – Angeln' : d.name, x + w / 2, y + h - 2, 11, '#fff');
+      continue;
+    }
     if (d.id !== 'teich') { ctx.fillStyle = 'rgba(0,0,0,0.18)'; rr(x + 8, y + 12, w - 10, h - 10, 8); ctx.fill(); }
     if (d.id === 'haus') {
       // Fachwerkhaus
@@ -323,6 +446,63 @@ function drawDecor(T) {
   }
 }
 
+// Wohnhaus, Scheune und Teich in Pixel-Grafik (die Auftragstafel bleibt gezeichnet)
+function drawDecorPixel(d, x, y, w, h, T) {
+  if (d.id === 'haus') { // Wohnhaus + Hofhund, der davor auf und ab läuft
+    spr(ctx, 'haus', 0, x + w / 2, y + h - 8);
+    const q = Math.sin(T * 0.35), still = Math.abs(Math.cos(T * 0.35)) < 0.25;
+    spr(ctx, 'hund_lauf', still ? 0 : Math.floor(T * 10), Math.round(x + w / 2 + q * (w / 2 - 22)), y + h + 26, Math.cos(T * 0.35) < 0);
+    return true;
+  }
+  if (d.id === 'scheune') {
+    spr(ctx, 'scheune', 0, x + w / 2, y + h - 14);
+    const total = Object.values(G.inv).reduce((s, n) => s + n, 0);
+    if (total) badge(x + w - 22, y + 34, total);
+    return true;
+  }
+  if (d.id === 'tafel') {
+    const bx = x + w / 2, by = y + h - 12;
+    spr(ctx, 'kisten', 0, x + 20, by + 4);
+    spr(ctx, 'tafel', 0, bx - 22, by); spr(ctx, 'tafel', 0, bx + 22, by);
+    for (let i = 0; i < Math.min(4, G.orders.length); i++) { // ein Zettel pro Auftrag
+      const o = G.orders[i], ready = o && o.wait === undefined && hasAll(o.items);
+      const nx = bx - 36 + (i % 2) * 15 + Math.floor(i / 2) * 44, ny = by - 40 + (i % 2) * 4;
+      ctx.fillStyle = 'rgba(40,25,10,0.45)'; ctx.fillRect(nx + 1, ny + 1, 12, 15);
+      ctx.fillStyle = o && o.wait === undefined ? (ready ? '#cdf29b' : '#f6ecd0') : 'rgba(246,236,208,0.35)'; ctx.fillRect(nx, ny, 12, 15);
+      if (o && o.wait === undefined) { ctx.fillStyle = 'rgba(70,50,30,0.55)'; for (let k = 0; k < 3; k++) ctx.fillRect(nx + 2, ny + 4 + k * 3, 8 - (k === 2 ? 3 : 0), 1); }
+      ctx.fillStyle = '#c0392b'; ctx.fillRect(nx + 5, ny - 1, 2, 2);
+    }
+    const n = G.orders.filter((o) => o.wait === undefined && hasAll(o.items)).length;
+    if (n) badge(x + w - 18, y + 22 + Math.sin(T * 5) * 3, n);
+    return true;
+  }
+  if (d.id !== 'teich') return false;
+  const cx = x + w / 2, cy = y + h / 2;
+  ctx.fillStyle = PX.water; ctx.fillRect(x + 8, y + 8, w - 16, h - 16);
+  ctx.fillStyle = 'rgba(170,200,245,0.55)';
+  for (let k = 0; k < 4; k++) { // kleine Wellen
+    const q = (T * 0.25 + k / 4) % 1;
+    ctx.fillRect(Math.round(x + 22 + hash(k, 3) * (w - 60) + q * 12), Math.round(y + 22 + hash(k, 5) * (h - 44)), 6, 2);
+  }
+  spr(ctx, 'seerosen', Math.floor(T * 3) % 6, x + 36, y + h - 14);
+  nineSlice(ctx, 'coast', Math.floor(T * 4) % 6, x, y, w, h);
+  const jump = (T * 0.25) % 1; // ab und zu springt ein Fisch
+  if (G.pond.fish > 0 && jump < 0.12) { // Pixel-Fisch springt aus dem Wasser
+    const q = jump / 0.12, f = Math.min(8, Math.floor(q * 9));
+    spr(ctx, 'fischspritzer', f, cx + 18, cy + 12); spr(ctx, 'fischsprung', f, cx + 18, Math.round(cy + 10 - Math.sin(q * Math.PI) * 12));
+  }
+  spr(ctx, 'ente_schwimm', Math.floor(T * 6), Math.round(cx - 14 + Math.sin(T * 0.4) * 26), cy + 16, Math.cos(T * 0.4) < 0);
+  if (G.level >= POND.level) { // Steg mit Angel
+    ctx.fillStyle = '#9c6b3c'; ctx.fillRect(x + w - 26, cy - 6, 26, 12);
+    ctx.fillStyle = '#6e4626'; for (let k = 0; k < 5; k++) ctx.fillRect(x + w - 26 + k * 6, cy - 6, 1, 12);
+    ctx.fillRect(x + w - 26, cy + 5, 26, 1);
+    ctx.strokeStyle = '#5d3a1a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + w - 8, cy + 2); ctx.lineTo(x + w - 30, cy - 26); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + w - 30, cy - 26); ctx.lineTo(x + w - 36, cy + 4); ctx.stroke();
+    if (G.pond.fish > 0) bubbleIcon(cx + 10, y - 2 + Math.sin(T * 3) * 2, '🎣', 13, '#3b8fcf', G.pond.fish);
+  }
+  return true;
+}
+
 function badge(x, y, n) {
   ctx.save(); ctx.translate(x, y); ctx.scale(uiK(), uiK());
   ctx.fillStyle = '#e74c3c'; ctx.beginPath(); ctx.arc(0, 0, 10, 0, 7); ctx.fill();
@@ -349,6 +529,17 @@ function drawParcels() {
         const gx = PARCEL_X0 + px * PARCEL + tx, gy = PARCEL_Y0 + py * PARCEL + ty, t = tile(gx, gy);
         if (t.s !== 'soil' || t.b) continue;
         const sx = gx * TILE, sy = gy * TILE, wet = boostMap && boostMap[idx(gx, gy)];
+        if (atlasReady) { // Pixel-Ackerboden, Kacheln leicht voneinander abgesetzt
+          const f = SPR.soil[Math.floor(hash(gx, gy) * 3)];
+          ctx.fillStyle = '#93533a'; ctx.fillRect(sx, sy, TILE, TILE); // Erdfarbe unter die Kachel (das Sheet hat durchsichtige Fugen)
+          ctx.drawImage(ATL, f[0], f[1], 48, 48, sx, sy, TILE, TILE);
+          if (wet) { ctx.fillStyle = 'rgba(30,45,110,0.24)'; ctx.fillRect(sx, sy, TILE, TILE); }
+          else if (t.c) { ctx.fillStyle = 'rgba(40,20,5,0.10)'; ctx.fillRect(sx, sy, TILE, TILE); }
+          ctx.fillStyle = 'rgba(55,28,12,0.35)'; ctx.fillRect(sx, sy, TILE, 2); ctx.fillRect(sx, sy, 2, TILE);
+          ctx.fillStyle = 'rgba(255,215,160,0.12)'; ctx.fillRect(sx + 2, sy + 2, TILE - 2, 1);
+          if (wet) { ctx.fillStyle = 'rgba(170,215,255,0.8)'; ctx.fillRect(sx + 12, sy + 34, 2, 2); ctx.fillRect(sx + 34, sy + 16, 2, 2); }
+          continue;
+        }
         ctx.fillStyle = 'rgba(60,35,15,0.35)'; rr(sx + 2, sy + 4, TILE - 4, TILE - 4, 7); ctx.fill();
         ctx.fillStyle = wet ? '#6e4426' : t.c ? '#7d4c29' : '#8f5c34'; rr(sx + 2, sy + 2, TILE - 4, TILE - 5, 7); ctx.fill();
         ctx.fillStyle = 'rgba(255,220,170,0.10)'; rr(sx + 4, sy + 3, TILE - 8, 6, 3); ctx.fill();
@@ -361,15 +552,21 @@ function drawParcels() {
       continue;
     }
     ctx.fillStyle = 'rgba(25,55,20,0.38)'; ctx.fillRect(x, y, w, w);
-    for (let k = 0; k < 6; k++) { // Gestrüpp
+    if (atlasReady) { // Gestrüpp + Holzzaun in Pixel-Grafik
+      const bush = [];
+      for (let k = 0; k < 6; k++) bush.push([x + 20 + Math.round(hash(i, k) * (w - 40)), y + 30 + Math.round(hash(k, i + 7) * (w - 44)), Math.floor(hash(i + k, 3) * 6)]);
+      bush.sort((a, b) => a[1] - b[1]).forEach(([bx, by, v]) => spr(ctx, 'busch', v, bx, by, v % 2 === 1));
+      nineSlice(ctx, 'fence9', 0, x, y, w, w);
+    } else for (let k = 0; k < 6; k++) { // Gestrüpp
       const bx = x + 18 + hash(i, k) * (w - 36), by = y + 18 + hash(k, i + 7) * (w - 36);
       ctx.fillStyle = '#2f6e2c'; ctx.beginPath(); ctx.arc(bx, by, 7 + hash(i + k, 3) * 5, 0, 7); ctx.fill();
       ctx.fillStyle = '#3c8236'; ctx.beginPath(); ctx.arc(bx - 2, by - 3, 4 + hash(i + k, 4) * 3, 0, 7); ctx.fill();
     }
-    // Zaun: Pfosten + zwei Latten
-    ctx.strokeStyle = '#c9a26b'; ctx.lineWidth = 2.5; ctx.strokeRect(x + 5, y + 5, w - 10, w - 10); ctx.strokeRect(x + 5, y + 11, w - 10, w - 22);
-    ctx.fillStyle = '#9b7040';
-    for (let k = 0; k <= 4; k++) for (const [fx, fy] of [[x + 3 + k * (w - 10) / 4, y + 1], [x + 3 + k * (w - 10) / 4, y + w - 11], [x + 1, y + 3 + k * (w - 10) / 4], [x + w - 7, y + 3 + k * (w - 10) / 4]]) ctx.fillRect(fx, fy, 5, 8);
+    if (!atlasReady) { // Zaun: Pfosten + zwei Latten
+      ctx.strokeStyle = '#c9a26b'; ctx.lineWidth = 2.5; ctx.strokeRect(x + 5, y + 5, w - 10, w - 10); ctx.strokeRect(x + 5, y + 11, w - 10, w - 22);
+      ctx.fillStyle = '#9b7040';
+      for (let k = 0; k <= 4; k++) for (const [fx, fy] of [[x + 3 + k * (w - 10) / 4, y + 1], [x + 3 + k * (w - 10) / 4, y + w - 11], [x + 1, y + 3 + k * (w - 10) / 4], [x + w - 7, y + 3 + k * (w - 10) / 4]]) ctx.fillRect(fx, fy, 5, 8);
+    }
     if (parcelBuyable(i)) {
       const ok = G.level >= next.level;
       ctx.save(); ctx.translate(x + w / 2, y + w / 2); ctx.scale(uiK(), uiK());
@@ -387,6 +584,21 @@ function drawCrop(x, y, T) {
   const t = tile(x, y);
   if (!t.c) return;
   const px = x * TILE + TILE / 2, py = y * TILE + TILE / 2, p = t.p, icon = ITEMS[t.c].icon;
+  if (atlasReady && SPR[t.c]) { // Pixel-Pflanzen: 3 Wachstumsstufen + reif
+    const stage = p >= 1 ? 3 : p < 0.33 ? 0 : p < 0.66 ? 1 : 2, by = y * TILE + TILE - 3;
+    if (p >= 1) { // weiches Leuchten: reif!
+      const gl = ctx.createRadialGradient(px, py + 6, 2, px, py + 6, 24);
+      gl.addColorStop(0, `rgba(255,236,120,${0.45 + Math.sin(T * 3 + x + y) * 0.12})`); gl.addColorStop(1, 'rgba(255,236,120,0)');
+      ctx.fillStyle = gl; ctx.fillRect(px - 24, py - 18, 48, 48);
+    }
+    if (SPR[t.c][0][6] <= 16) { spr(ctx, t.c, stage, px - 15, by - 3); spr(ctx, t.c, stage, px + 15, by - 3); spr(ctx, t.c, stage, px, by); }
+    else spr(ctx, t.c, stage, px, by);
+    if (p >= 1 && (T * 1.3 + hash(x, y) * 10) % 3 < 0.25) { // Pixel-Funkeln
+      const sx = px + 12, sy = py - 14; ctx.fillStyle = '#fff6c2';
+      ctx.fillRect(sx - 1, sy - 5, 2, 10); ctx.fillRect(sx - 5, sy - 1, 10, 2); ctx.fillStyle = '#fff'; ctx.fillRect(sx - 1, sy - 1, 2, 2);
+    }
+    return;
+  }
   if (p >= 1) {
     const b = Math.sin(T * 4 + x + y) * 2;
     ctx.fillStyle = 'rgba(255,240,120,0.38)'; ctx.beginPath(); ctx.arc(px, py + 2, 18, 0, 7); ctx.fill();
@@ -414,6 +626,18 @@ function drawCrop(x, y, T) {
 // ---------- Gebäude, Bäume & Tiere ----------
 function drawBuilding(b, T) {
   const d = BUILDINGS[b.type], x = b.x * TILE, y = b.y * TILE, w = d.w * TILE, h = d.h * TILE;
+  if (d.kind === 'boost' && atlasReady) { // Pixel-Sprinkler: Metallrohr + kreisende Wassertropfen
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(x + 16, y + 38, 16, 3);
+    ctx.fillStyle = '#2b2a33'; ctx.fillRect(x + 21, y + 16, 6, 24); ctx.fillRect(x + 17, y + 11, 14, 7);
+    ctx.fillStyle = '#8697ba'; ctx.fillRect(x + 22, y + 17, 4, 22); ctx.fillRect(x + 18, y + 12, 12, 5);
+    ctx.fillStyle = '#c3d3ee'; ctx.fillRect(x + 22, y + 17, 1, 21); ctx.fillRect(x + 18, y + 12, 12, 1);
+    for (let k = 0; k < 10; k++) {
+      const a = T * 3 + k * 0.63, rr2 = 8 + ((T * 18 + k * 7) % 16);
+      ctx.fillStyle = k % 3 ? 'rgba(140,200,255,0.85)' : 'rgba(220,240,255,0.9)';
+      ctx.fillRect(Math.round(x + 24 + Math.cos(a) * rr2), Math.round(y + 14 + Math.sin(a) * rr2 * 0.55), 2, 2);
+    }
+    return;
+  }
   if (d.kind === 'boost') {
     ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(x + 24, y + 38, 14, 5, 0, 0, 7); ctx.fill();
     ctx.fillStyle = '#7f8c8d'; ctx.fillRect(x + 21, y + 14, 6, 24);
@@ -424,6 +648,7 @@ function drawBuilding(b, T) {
     return;
   }
   if (d.kind === 'tree') { drawFruitTree(b, d, x, y, T); return; }
+  if (atlasReady) { drawBuildingPixel(b, d, x, y, w, h, T); return; }
   ctx.fillStyle = 'rgba(0,0,0,0.2)'; rr(x + 6, y + 10, w - 6, h - 6, 10); ctx.fill();
   if (d.kind === 'animal' || d.kind === 'horse') {
     ctx.fillStyle = d.ground; rr(x + 3, y + 3, w - 6, h - 6, 8); ctx.fill();
@@ -481,8 +706,72 @@ function drawBuilding(b, T) {
   }
 }
 
+// ----- Pixel-Gebäude -----
+const FACTORY_ART = { muehle: 'muehlturm', baeckerei: 'steinhaus', kaeserei: 'offenescheune', saftpresse: 'stall' };
+const ANIMAL_ART = { huhn: 'huhn', kuh: 'kuh', schaf: 'schaf' };
+// Bewegung eines Tieres in seinem Gehege (gleiches Muster wie früher, Füße zwischen Hütte und Zaun)
+function penMove(b, i, x, y, w, h, T, sp0, spr0) {
+  const sp = sp0 + hash(b.id, i) * spr0, ph = hash(i, b.id) * 10, vx = Math.cos(T * sp + ph);
+  return { x: Math.round(x + w / 2 + Math.sin(T * sp + ph) * (w / 2 - 24)), y: Math.round(y + h - 26 + Math.sin(T * sp * 1.3 + ph * 2) * 16), dir: vx > 0 ? 1 : -1, still: Math.abs(vx) < 0.3, ph };
+}
+function drawBuildingPixel(b, d, x, y, w, h, T) {
+  if (d.kind === 'animal' || d.kind === 'horse') {
+    const dirt = d.animal === 'huhn' || d.kind === 'horse';
+    ctx.fillStyle = dirt ? 'rgba(184,133,75,0.8)' : 'rgba(78,128,52,0.5)'; ctx.fillRect(x + 6, y + 8, w - 12, h - 14);
+    ctx.fillStyle = dirt ? 'rgba(120,80,45,0.45)' : 'rgba(150,200,95,0.35)';
+    for (let k = 0; k < 10; k++) ctx.fillRect(x + 10 + Math.round(hash(b.id, k) * (w - 24)), y + 14 + Math.round(hash(k, b.id + 3) * (h - 28)), 2 + (k % 2) * 2, 2);
+    fenceRing(ctx, x, y, w, h, 'back');
+    if (d.animal === 'huhn') spr(ctx, 'huehnerhaus', 0, x + 24, y + 54);
+    else spr(ctx, 'heuhuette', 0, x + w / 2, y + 46);
+    const list = [];
+    if (d.kind === 'horse') {
+      (b.horses || []).forEach((c, i) => { const m = penMove(b, i, x, y, w, h, T, 0.18, 0.2); list.push([m.y, () => drawHorse(ctx, c, m.x, m.y, m.dir, T + m.ph, 1, m.still)]); });
+      if (b.foal) list.push([y + h - 12, () => drawHorse(ctx, b.foal, x + w - 26, y + h - 12, -1, T, 0.6, true)]);
+    } else {
+      const base = ANIMAL_ART[d.animal];
+      for (let i = 0; i < b.animals; i++) {
+        const m = penMove(b, i, x, y, w, h, T, 0.25, 0.3);
+        list.push([m.y, () => spr(ctx, base + (m.still ? '_steh' : '_lauf'), Math.floor(T * (m.still ? 5 : 9) + m.ph * 3), m.x, m.y, m.dir < 0)]);
+      }
+    }
+    list.sort((p, q) => p[0] - q[0]).forEach((e) => e[1]());
+    fenceRing(ctx, x, y, w, h, 'front');
+    return;
+  }
+  // Werkstatt: Gebäude + Schild mit der Ware
+  const art = FACTORY_ART[b.type] || 'stall', by = y + h - 4, running = b.job && b.job.p < 1;
+  spr(ctx, art, 0, x + w / 2, by);
+  if (b.type === 'muehle') spr(ctx, 'fluegel', running ? Math.floor(T * 8) : 0, x + w / 2 - 2, by - 10);
+  ctx.fillStyle = '#5a3a1e'; ctx.fillRect(x + w - 30, y + h - 30, 26, 22);
+  ctx.fillStyle = '#c99a5b'; ctx.fillRect(x + w - 28, y + h - 28, 22, 18);
+  drawEmoji(ctx, d.icon, x + w - 17, y + h - 19, 14);
+  if (running && b.type !== 'muehle') { // Rauch
+    const top = by - sprTop(art);
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    for (let k = 0; k < 3; k++) { const q = (T * 0.8 + k / 3) % 1; ctx.beginPath(); ctx.arc(x + w * 0.72 + q * 8, top + 8 - q * 24, 3 + q * 5, 0, 7); ctx.fill(); }
+  }
+}
+// oberer Rand eines Gebäudes (für die Status-Blase)
+function buildingTop(b) {
+  const d = BUILDINGS[b.type], y = b.y * TILE;
+  if (!atlasReady) return y;
+  if (d.kind === 'tree') return y + TILE - 2 - sprTop(b.type);
+  if (FACTORY_ART[b.type]) return Math.min(y, y + d.h * TILE - 4 - sprTop(b.type === 'muehle' ? 'fluegel' : FACTORY_ART[b.type]) - (b.type === 'muehle' ? 10 : 0));
+  return y;
+}
+
 function drawFruitTree(b, d, x, y, T) {
   const cx = x + TILE / 2, cy = y + TILE / 2 - 4, ready = b.job && b.job.p >= 1, p = b.job ? b.job.p : 0;
+  if (atlasReady && SPR[b.type]) { // Pixel-Baum: Früchte erscheinen langsam, reif = volle Früchte
+    const by = y + TILE - 2;
+    spr(ctx, b.type, 0, cx, by);
+    if (ready) spr(ctx, b.type, 1, cx, by);
+    else if (p > 0.5) { ctx.globalAlpha = Math.min(1, (p - 0.5) * 1.8); spr(ctx, b.type, 1, cx, by); ctx.globalAlpha = 1; }
+    if (b.type === 'kirschbaum' && !ready && p < 0.3) { // Kirschblüte
+      ctx.fillStyle = '#ffd1e0'; for (let k = 0; k < 9; k++) ctx.fillRect(Math.round(cx - 18 + hash(b.id, k) * 36), Math.round(by - 56 + hash(k, b.id) * 34), 2, 2);
+    }
+    return;
+  }
   ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(cx + 3, y + TILE - 6, 18, 6, 0, 0, 7); ctx.fill();
   ctx.fillStyle = '#7a4e2a'; ctx.fillRect(cx - 3.5, cy + 4, 7, 16);
   const sway = Math.sin(T * 1.2 + b.id) * 0.8;
@@ -526,7 +815,14 @@ function drawAnimal(type, x, y, dir, T) {
 }
 
 // Pferd in beliebiger Fellfarbe (g = Zeichenfläche, damit es auch im Fohlen-Popup geht)
-function drawHorse(g, coat, x, y, dir, T, s = 1, still = false) {
+function drawHorse(g, coat, x, y, dir, T, s = 1, still = false, foal = false) {
+  if (atlasReady) { // Pixel-Pferd in der Fellfarbe (umgefärbt in make_atlas.py); s < 0.8 oder foal = Fohlen, s ≥ 1.5 = doppelt groß
+    const kind = foal || s < 0.8 ? 'fohlen' : 'pferd', c = COATS[coat] ? coat : 'braun', sc = s >= 1.5 ? 2 : 1;
+    if (g !== ctx) g.imageSmoothingEnabled = false;
+    spr(g, `${kind}_${c}_${still ? 'steh' : 'lauf'}`, Math.floor(T * (still ? 4 : 9)), x, y, dir < 0, sc);
+    if (c === 'einhorn' && Math.sin(T * 3) > 0.75) { g.fillStyle = '#fff'; g.fillRect(x + dir * 14 * sc, y - 46 * sc, 2 * sc, 2 * sc); }
+    return;
+  }
   const k = COATS[coat] || COATS.braun, rainbow = k.mane === 'rainbow';
   const mane = rainbow ? '#ff7ad9' : k.mane, leg = shade(k.body, -0.18);
   g.save(); g.translate(x, y); g.scale(dir * s, s);
@@ -565,7 +861,7 @@ function drawHorse(g, coat, x, y, dir, T, s = 1, still = false) {
 function drawBubble(b, T) {
   const d = BUILDINGS[b.type];
   if (d.kind === 'boost') return;
-  const cx = (b.x + d.w / 2) * TILE, top = b.y * TILE;
+  const cx = (b.x + d.w / 2) * TILE, top = buildingTop(b);
   if (d.kind === 'horse' && b.foal) { bubbleIcon(cx, top - 6 + Math.sin(T * 5) * 3, '🐴', 17, '#e0a800', '!'); return; }
   if (b.job && b.job.p >= 1) {
     const by = top - 6 + Math.sin(T * 5) * 3;
@@ -602,7 +898,8 @@ function townHit(x, y) { // Kachel → Projekt-ID (oder 'town' für den Rest der
 }
 function drawTown(T) {
   const X = TOWN_X0 * TILE;
-  for (let y = 1; y <= 12; y++) { // Hecke am Stadtrand
+  if (atlasReady) for (let y = 1; y <= 12; y++) spr(ctx, 'busch', Math.floor(hash(y, 77) * 6), X + 24, y * TILE + 44, y % 2 === 1); // Hecke am Stadtrand
+  else for (let y = 1; y <= 12; y++) { // Hecke am Stadtrand
     const hx = X + 24, hy = y * TILE + 24;
     ctx.fillStyle = '#2e6f2e'; ctx.beginPath(); ctx.arc(hx, hy, 19, 0, 7); ctx.fill();
     ctx.fillStyle = '#3d8a3a'; ctx.beginPath(); ctx.arc(hx - 4, hy - 5, 12, 0, 7); ctx.fill();
@@ -614,6 +911,11 @@ function drawTown(T) {
   ctx.fillStyle = '#222'; ctx.font = 'bold 8.5px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(TOWN_NAME, 0, -3);
   ctx.restore();
 
+  if (atlasReady) { // Karren, Fässer, Kisten an der Straße – mit jedem Projekt mehr Leben (vor den Gebäuden gezeichnet, damit Schilder frei bleiben)
+    const sp = [2, 6, 3, 8, 7, 9], nd = Math.min(sp.length, 2 + Object.keys(PROJECTS).filter(built).length);
+    for (let i = 0; i < nd; i++) spr(ctx, TOWN_DECO[i][0], TOWN_DECO[i][1], (TOWN_X0 + sp[i] + 0.5) * TILE, 13 * TILE + 44, i % 2 === 1);
+    drawPeoplePixel(T); // Bewohner vor den Schildern zeichnen, damit die Namen lesbar bleiben
+  }
   for (const [id, p] of Object.entries(PROJECTS)) {
     const r = lotRect(p.lot);
     if (built(id)) { drawProject(id, r, T); continue; }
@@ -634,6 +936,7 @@ function drawTown(T) {
   // Häuschen am unteren Rand: werden mit jedem Projekt mehr
   const spots = [2, 6, 3, 8, 7, 9]; // Spalte 1 bleibt frei fürs Ortsschild
   const n = Math.min(spots.length, 2 + Object.keys(PROJECTS).filter(built).length);
+  if (atlasReady) return; // Deko und Bewohner stehen schon (siehe oben)
   for (let i = 0; i < n; i++) {
     const hx = (TOWN_X0 + spots[i]) * TILE, hy = 13 * TILE;
     const roof = ['#c0392b', '#2f7fc1', '#e67e22', '#8e44ad', '#16a085', '#d35400', '#c0392b'][i];
@@ -645,8 +948,71 @@ function drawTown(T) {
   drawPeople(T);
 }
 
+// ----- Stadt in Pixel-Grafik (Pakete derselben CraftPix-Reihe: Kapelle, Gildenhalle, Marktplatz …) -----
+function drawProjectPixel(id, r, T) {
+  const { x, y, w, h } = r, cx = x + w / 2, by = y + h - 6;
+  switch (id) {
+    case 'kirche':
+      spr(ctx, 'kirche', 0, cx, by);
+      spr(ctx, 'blumen', 0, x + 16, by + 2); spr(ctx, 'blumen', 1, x + w - 16, by + 2);
+      return true;
+    case 'rathaus':
+      spr(ctx, 'banner', 0, cx - 86, by - 30); spr(ctx, 'banner', 0, cx + 86, by - 30);
+      spr(ctx, 'rathaus', 0, cx, by);
+      spr(ctx, 'blumen', 2, cx - 40, by + 2); spr(ctx, 'blumen', 3, cx + 40, by + 2);
+      return true;
+    case 'schule':
+      spr(ctx, 'schule', 0, cx, by);
+      return true;
+    case 'markt':
+      spr(ctx, 'marktbanner', 0, x + 12, y + 104);
+      spr(ctx, 'marktstand', 0, cx, y + 110);
+      spr(ctx, 'haendler', Math.floor(T * 6), cx + 50, y + 132);
+      spr(ctx, 'brotstand', 0, cx - 18, by - 8);
+      spr(ctx, 'fass', 0, x + w - 20, by);
+      return true;
+    case 'brunnen':
+      spr(ctx, 'brunnen', 0, cx, y + h - 22);
+      spr(ctx, 'blumen', 2, cx - 32, y + h - 6); spr(ctx, 'blumen', 3, cx + 32, y + h - 6);
+      return true;
+    case 'festplatz':
+      spr(ctx, 'zelt', 0, x + 62, y + 124);
+      spr(ctx, 'vogelscheuche', 0, x + w - 32, y + 92);
+      spr(ctx, 'marktbanner', 0, x + w - 72, y + 96);
+      spr(ctx, 'tisch', 1, x + 116, y + 158); spr(ctx, 'tisch', 0, x + w - 40, y + 150); spr(ctx, 'tisch', 2, x + w - 30, by);
+      spr(ctx, 'laute', Math.floor(T * 7), x + 34, by); spr(ctx, 'floete', Math.floor(T * 6), x + 66, by + 2);
+      return true;
+    case 'reitschule': {
+      ctx.fillStyle = '#c99a5b'; ctx.fillRect(x + 8, y + 12, w - 16, h - 18);
+      ctx.fillStyle = 'rgba(120,80,45,0.35)';
+      for (let k = 0; k < 14; k++) ctx.fillRect(x + 14 + Math.round(hash(k, 91) * (w - 30)), y + 18 + Math.round(hash(91, k) * (h - 34)), 3, 2);
+      fenceRing(ctx, x, y, w, h, 'back');
+      for (const [px, py] of [[cx - 40, y + h / 2 - 22], [cx + 34, y + h / 2 + 34]]) { // Sprung-Hindernisse
+        ctx.fillStyle = '#3e2a1c'; ctx.fillRect(px - 13, py - 14, 3, 14); ctx.fillRect(px + 10, py - 14, 3, 14);
+        for (let k = 0; k < 6; k++) { ctx.fillStyle = k % 2 ? '#f4efe4' : '#c0392b'; ctx.fillRect(px - 12 + k * 4, py - 11, 4, 3); }
+      }
+      const a = T * 0.6;
+      drawHorse(ctx, ['falbe', 'rappe', 'schimmel'][Math.floor(T / 20) % 3], Math.round(cx + Math.cos(a) * (w / 2 - 42)), Math.round(y + h / 2 + 12 + Math.sin(a) * (h / 2 - 50)), -Math.sin(a) > 0 ? 1 : -1, T * 1.4, 1.1);
+      fenceRing(ctx, x, y, w, h, 'front');
+      return true;
+    }
+  }
+  return false;
+}
+const TOWN_DECO = [['karren', 0], ['fass', 0], ['kisten', 0], ['karren', 1], ['schubkarre', 0], ['tisch', 0]];
+function drawPeoplePixel(T) {
+  const n = 3 + Object.keys(PROJECTS).filter(built).length * 2;
+  for (let i = 0; i < n; i++) {
+    const sp = 0.012 + hash(i, 21) * 0.012, q = (T * sp + hash(i, 22)) % 1, back = q > 0.5, u = back ? (1 - q) * 2 : q * 2;
+    const who = 'buerger' + (1 + (i % 5)), f = Math.floor(T * 8 + i * 3);
+    if (i % 3 === 2) spr(ctx, who + '_rechts', f, Math.round((TOWN_X0 + 0.6 + u * (TOWN_W - 1.2)) * TILE), 14 * TILE + 26 + (i % 2) * 14, back); // auf der Straße
+    else spr(ctx, who + (back ? '_hoch' : '_runter'), f, Math.round((TOWN_X0 + 4.3 + (i % 2) * 1.4) * TILE), Math.round((1.5 + u * 12) * TILE + 8)); // in der Gasse
+  }
+}
+
 function drawProject(id, r, T) {
   const { x, y, w, h } = r, cx = x + w / 2;
+  if (atlasReady && drawProjectPixel(id, r, T)) { outlinedText(ctx, PROJECTS[id].name, cx, y + h - 4, 11, '#fff'); return; }
   ctx.fillStyle = 'rgba(0,0,0,0.18)'; rr(x + 10, y + 14, w - 14, h - 14, 10); ctx.fill();
   if (id === 'markt') {
     const cols = [['#e74c3c', '#fff'], ['#27ae60', '#fff'], ['#2f7fc1', '#fff']];
@@ -743,6 +1109,13 @@ function drawAmbient(T) {
     const ax = (6 + hash(i, 11) * 15) * TILE, ay = (3 + hash(i, 12) * 9) * TILE;
     const x = ax + Math.sin(T * 0.37 + i) * 90 + Math.sin(T * 1.3 + i * 2) * 18;
     const y = ay + Math.cos(T * 0.29 + i * 3) * 50 + Math.sin(T * 1.7 + i) * 12;
+    if (atlasReady) { // Pixel-Schmetterling: zwei Flügel, die auf und zu schlagen
+      const c = ['#f2b6c6', '#f6d76b', '#c7b8f0', '#f4efd8', '#9fd3f0'][i], open = Math.sin(T * 14 + i) > 0, bx = Math.round(x), by = Math.round(y);
+      ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(bx - 2, by + 14, 5, 2);
+      ctx.fillStyle = c; if (open) { ctx.fillRect(bx - 5, by - 3, 4, 4); ctx.fillRect(bx + 2, by - 3, 4, 4); ctx.fillRect(bx - 4, by + 1, 3, 2); ctx.fillRect(bx + 2, by + 1, 3, 2); } else { ctx.fillRect(bx - 2, by - 4, 2, 5); ctx.fillRect(bx + 1, by - 4, 2, 5); }
+      ctx.fillStyle = '#3a2a2a'; ctx.fillRect(bx, by - 3, 1, 6);
+      continue;
+    }
     ctx.save(); ctx.translate(x, y); ctx.scale(0.35 + Math.abs(Math.sin(T * 11 + i)) * 0.65, 1);
     drawEmoji(ctx, '🦋', 0, 0, 13); ctx.restore();
   }
