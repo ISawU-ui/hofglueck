@@ -2,43 +2,59 @@
 'use strict';
 
 const SAVE_KEY = 'farmspiel_v1';
-const NEWS_VERSION = 3; // erhöhen, wenn es für bestehende Spieler „Neu im Spiel“ zu zeigen gibt
-const DECOR = [
-  { id: 'haus',    name: 'Wohnhaus',      x: 0, y: 1,  w: 3, h: 3 },
-  { id: 'tafel',   name: 'Auftragstafel', x: 0, y: 5,  w: 3, h: 2 },
-  { id: 'scheune', name: 'Scheune',       x: 0, y: 8,  w: 3, h: 3 },
-  { id: 'teich',   name: 'Teich',         x: 0, y: 12, w: 3, h: 2 },
-];
+const NEWS_VERSION = 4; // erhöhen, wenn es für bestehende Spieler „Neu im Spiel“ zu zeigen gibt
+const MAP_VERSION = 6;  // Update 6: neue Karte (40 × 27) – ältere Spielstände werden beim Laden umgezogen
 
 let G; // der Spielstand
 
 const idx = (x, y) => y * MAP_W + x;
 const inMap = (x, y) => x >= 0 && y >= 0 && x < MAP_W && y < MAP_H;
-function parcelAt(x, y) {
-  const px = Math.floor((x - PARCEL_X0) / PARCEL), py = Math.floor((y - PARCEL_Y0) / PARCEL);
-  if (x < PARCEL_X0 || y < PARCEL_Y0 || px >= PARCEL_COLS || py >= PARCEL_ROWS) return null;
-  return { px, py, i: py * PARCEL_COLS + px };
-}
+const inRect = (r, x, y) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+// Landstück-Nummer je Kachel (−1 = kein Landstück)
+const PIDX = new Int8Array(MAP_W * MAP_H).fill(-1);
+PARCELS.forEach((p, i) => { for (let dx = 0; dx < p.w; dx++) for (let dy = 0; dy < p.h; dy++) PIDX[(p.y + dy) * MAP_W + p.x + dx] = i; });
+function parcelAt(x, y) { if (!inMap(x, y)) return null; const i = PIDX[idx(x, y)]; return i < 0 ? null : { i, p: PARCELS[i] }; }
 const owned = (x, y) => { const p = parcelAt(x, y); return !!p && G.parcels[p.i]; };
 const tile = (x, y) => G.tiles[idx(x, y)];
 const inv = (id) => G.inv[id] || 0;
 const addInv = (id, n) => { G.inv[id] = inv(id) + n; };
+// Wege und feste Dinge (dort wird nichts gebaut, keine Deko)
+function isRoad(x, y) {
+  const f = FARM;
+  return (y === f.road.y && x >= f.road.x0) || (x === f.stegweg.x && y >= f.stegweg.y0 && y <= f.stegweg.y1)
+    || (x === f.minenweg.x && y >= f.minenweg.y0 && y <= f.minenweg.y1) || inRect(f.link, x, y);
+}
+const farmObjAt = (x, y) => FARM_OBJ.find((o) => inRect(o, x, y));
+const isBed = (x, y) => FARM.beds.some(([bx, by]) => bx === x && by === y);
+const zoneAt = (x, y) => DECO_ZONES.find((z) => inRect(z, x, y));
+const farmObj = (id) => FARM_OBJ.find((o) => o.id === id);
 
+function blankTiles() { return Array.from({ length: MAP_W * MAP_H }, () => ({ s: 'grass', c: null, p: 0, b: null })); }
 function newGame() {
   G = {
-    money: 40, xp: 0, level: 1, nextId: 1,
-    tiles: Array.from({ length: MAP_W * MAP_H }, () => ({ s: 'grass', c: null, p: 0, b: null })),
-    parcels: Array(PARCEL_COLS * PARCEL_ROWS).fill(false),
+    ver: MAP_VERSION, money: 40, xp: 0, level: 1, nextId: 1,
+    tiles: blankTiles(),
+    parcels: PARCELS.map(() => false),
     buildings: {}, inv: {}, upgrades: {}, orders: [], claimed: {},
-    stats: { plowed: 0, planted: 0, harvested: 0, earned: 0, orders: 0, produced: 0, parcels: 0, sold: 0, fished: 0, foals: 0, projects: 0 },
+    stats: { plowed: 0, planted: 0, harvested: 0, earned: 0, orders: 0, produced: 0, parcels: 0, sold: 0, fished: 0, foals: 0, projects: 0, mined: 0, boated: 0 },
     market: {}, town: {}, coats: {}, pond: { fish: POND.max, t: 0 },
+    boat: { fish: BOAT.max, t: 0 }, mine: { open: false, finds: MINE.max, t: 0 },
+    deco: {}, decoStore: {}, pets: {}, trader: { day: '', sold: false },
+    house: { type: 'haeuschen', wall: 'weiss', roof: 'rot', door: 'holz', win: 'klein', have: { type: ['haeuschen'], wall: ['weiss'], roof: ['rot'], door: ['holz'], win: ['klein'] } },
+    car: { cur: null, have: [] },
     seen: NEWS_VERSION, introDone: false,
     lastSave: Date.now(),
   };
-  for (const [px, py] of START_PARCELS) G.parcels[py * PARCEL_COLS + px] = true;
-  // ein paar Startfelder schon gepflügt, damit man sofort loslegen kann
-  for (let x = 5; x < 8; x++) for (let y = 3; y < 5; y++) tile(x, y).s = 'soil';
+  for (const i of START_PARCELS) G.parcels[i] = true;
+  // sechs Startfelder schon gepflügt, damit man sofort loslegen kann
+  const p0 = PARCELS[0];
+  for (let x = p0.x + 1; x < p0.x + 4; x++) for (let y = p0.y + 1; y < p0.y + 3; y++) tile(x, y).s = 'soil';
+  startDeco();
   while (G.orders.length < 3) G.orders.push(makeOrder());
+}
+// Hofplatz am ersten Tag: drei kleine Dinge + eine Blume im Beet (alles verschieb- und einlagerbar)
+function startDeco() {
+  for (const [id, x, y] of [['fass', 9, 6], ['schubkarre', 12, 8], ['kisten', 13, 10], ['lilie', 4, 6]]) addDecoAt(id, x, y);
 }
 
 // ---------- Spielstände: 3 Plätze ----------
@@ -60,7 +76,11 @@ function switchSlot(n) { // speichert den aktuellen Hof und lädt Platz n (leer 
   slot = n; try { localStorage.setItem(SLOT_KEY, String(n)); } catch (e) {}
   return load();
 }
-function deleteSlot(n) { if (n === slot) return; try { localStorage.removeItem(slotKey(n)); } catch (e) {} }
+// Spielstand löschen: ein anderer Platz wird einfach leer, der aktive beginnt sofort neu
+function deleteSlot(n) {
+  try { localStorage.removeItem(slotKey(n)); } catch (e) {}
+  if (n === slot) { newGame(); rebuildBoost(); save(); }
+}
 
 function save() {
   G.lastSave = Date.now();
@@ -74,12 +94,17 @@ function load() {
   try {
     G = JSON.parse(raw);
     const fresh = G; newGame(); const def = G; G = fresh;
+    const oldMap = !G.ver || G.ver < MAP_VERSION || (G.tiles && G.tiles.length !== MAP_W * MAP_H); // vor dem Auffüllen prüfen!
     if (G.seen === undefined) { G.seen = 1; G.introDone = true; } // Spielstand von vor dem Update
     for (const k in def) if (G[k] === undefined) G[k] = def[k];
     for (const k in def.stats) if (G.stats[k] === undefined) G.stats[k] = 0;
+    if (oldMap) migrateMap(def);
+    for (const k of ['boat', 'mine', 'trader', 'house', 'car']) if (!G[k] || typeof G[k] !== 'object') G[k] = def[k];
+    for (const k in def.house) if (G.house[k] === undefined) G.house[k] = def.house[k];
     for (const b of Object.values(G.buildings)) if (!BUILDINGS[b.type]) delete G.buildings[b.id];
-    G.tiles.forEach((t) => { if (t.b && !G.buildings[t.b]) t.b = null; });
-  } catch (e) { newGame(); return 0; }
+    for (const d of Object.values(G.deco)) if (!DECO[d.t]) delete G.deco[d.id];
+    G.tiles.forEach((t) => { if (t.b && !G.buildings[t.b]) t.b = null; if (t.d && !G.deco[t.d]) t.d = null; });
+  } catch (e) { console.error(e); newGame(); return 0; }
   if (!Number.isFinite(G.money)) G.money = 0;
   if (!Number.isFinite(G.xp)) G.xp = 0;
   boostMap = null;
@@ -91,14 +116,73 @@ function load() {
 
 function resetGame() { try { localStorage.removeItem(slotKey(slot)); } catch (e) {} newGame(); rebuildBoost(); }
 
+// ---------- Umzug alter Spielstände auf die neue Karte (Update 6) ----------
+// Alte Landstück-Reihen 1 + 2 rücken 10 nach rechts und 3 nach unten, Reihe 3 rückt unter die Dorfstraße (4 nach unten).
+// Gebäude, die so nicht mehr passen (z. B. über der Straße), suchen sich einen freien Platz auf eigenem Land –
+// gibt es keinen, wird der volle Preis erstattet.
+function migrateMap(def) {
+  const oldTiles = G.tiles || [], oldParcels = G.parcels || [], oldB = G.buildings || {};
+  const shift = (ox, oy) => { const r = Math.floor((oy - OLD.Y0) / OLD.PARCEL); return { x: ox + 10, y: oy + (r >= 2 ? 4 : 3) }; };
+  G.tiles = blankTiles(); G.parcels = PARCELS.map(() => false);
+  for (const i of START_PARCELS) G.parcels[i] = true;
+  // Landstücke: jedes neue Stück, das ein altes gekauftes Stück überdeckt, gehört dir
+  oldParcels.forEach((own, i) => {
+    if (!own) return;
+    const c = i % OLD.COLS, r = Math.floor(i / OLD.COLS), a = shift(OLD.X0 + c * 4, OLD.Y0 + r * 4);
+    PARCELS.forEach((p, k) => { if (a.x < p.x + p.w && a.x + 4 > p.x && a.y < p.y + p.h && a.y + 4 > p.y) G.parcels[k] = true; });
+  });
+  // Felder und Pflanzen
+  for (let oy = OLD.Y0; oy < OLD.Y0 + OLD.ROWS * 4; oy++) for (let ox = OLD.X0; ox < OLD.X0 + OLD.COLS * 4; ox++) {
+    const t = oldTiles[oy * OLD.MAP_W + ox]; if (!t) continue;
+    const n = shift(ox, oy); if (!inMap(n.x, n.y) || !owned(n.x, n.y)) continue;
+    const nt = tile(n.x, n.y); nt.s = t.s === 'soil' ? 'soil' : 'grass'; nt.c = t.c && CROPS[t.c] ? t.c : null; nt.p = t.p || 0;
+  }
+  // Gebäude
+  G.buildings = {}; const refunds = [];
+  for (const b of Object.values(oldB)) {
+    const d = BUILDINGS[b.type]; if (!d) continue;
+    let pos = shift(b.x, b.y);
+    if (!spotFree(b.type, pos.x, pos.y)) pos = nearestSpot(b.type, pos.x, pos.y);
+    if (!pos) { G.money += d.cost; refunds.push(d.name); continue; }
+    b.x = pos.x; b.y = pos.y; G.buildings[b.id] = b;
+    for (let dx = 0; dx < d.w; dx++) for (let dy = 0; dy < d.h; dy++) { const t = tile(b.x + dx, b.y + dy); t.b = b.id; t.s = 'grass'; t.c = null; }
+  }
+  G.stats.parcels = Math.max(0, G.parcels.filter(Boolean).length - START_PARCELS.length);
+  G.deco = {}; G.decoStore = {}; G.pets = {};
+  G.house = JSON.parse(JSON.stringify(def.house));
+  if (G.level >= HOUSES.familienhaus.lv) { G.house.type = 'familienhaus'; G.house.have.type.push('familienhaus'); } // wer schon weit ist, behält ein großes Haus
+  G.car = { cur: null, have: [] };
+  startDeco();
+  G.ver = MAP_VERSION; G.moved = { refunds };
+  boostMap = null;
+}
+// Platz für ein Gebäude frei? (ohne Geld/Level zu prüfen – für Umzug und Bauen)
+function spotFree(type, x, y) {
+  const d = BUILDINGS[type];
+  for (let dx = 0; dx < d.w; dx++) for (let dy = 0; dy < d.h; dy++) {
+    const tx = x + dx, ty = y + dy;
+    if (!inMap(tx, ty) || !owned(tx, ty)) return false;
+    const t = tile(tx, ty); if (t.b || t.c || t.d) return false;
+  }
+  return true;
+}
+function nearestSpot(type, x0, y0) {
+  let best = null, bd = 1e9;
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
+    if (!spotFree(type, x, y)) continue;
+    const dd = (x - x0) ** 2 + (y - y0) ** 2; if (dd < bd) { bd = dd; best = { x, y }; }
+  }
+  return best;
+}
+
 // ---------- Multiplikatoren ----------
 const upg = (id) => G.upgrades[id] || 0;
 const growMul = () => 1 / (1 - DUENGER_STEP * upg('duenger'));
 const prodMul = () => 1 / (1 - FUTTER_STEP * upg('futter'));
-const built = (id) => !!G.town[id];
+const built = (id) => TOWN_ON && !!G.town[id]; // Stadt aus: keine Projekte, keine Boni (Daten bleiben gespeichert)
 const priceMul = () => 1 + 0.1 * upg('haendler') + (built('festplatz') ? 0.1 : 0);
 const xpMul = () => 1 + (built('schule') ? 0.1 : 0) + (built('rathaus') ? 0.15 : 0);
-const orderMul = () => built('kirche') ? 1.2 : 1;
+const orderMul = () => built('kirche') ? 1.2 : 1; // Autos sind vorerst nur Deko
 const orderSlots = () => 3 + (built('brunnen') ? 1 : 0) + (built('festplatz') ? 1 : 0);
 const mSize = () => marketSize(G.level, built('markt') ? 1.5 : 1);
 // Markt: aktueller Preis-Faktor einer Ware (1 = voller Preis)
@@ -140,9 +224,15 @@ function update(dt) {
   const pd = G.pond;
   if (pd.fish < POND.max) { pd.t += dt; while (pd.t >= POND.regen && pd.fish < POND.max) { pd.t -= POND.regen; pd.fish++; } }
   if (pd.fish >= POND.max) pd.t = 0;
+  regen(G.boat, BOAT, dt); if (G.mine.open) regen(G.mine, MINE, dt, 'finds');
   while (G.orders.length < orderSlots()) G.orders.push({ wait: 3 });
   for (const o of G.orders) if (o.wait) { o.wait -= dt; }
   for (let i = 0; i < G.orders.length; i++) if (G.orders[i].wait !== undefined && G.orders[i].wait <= 0) G.orders[i] = makeOrder();
+}
+
+function regen(o, cfg, dt, key = 'fish') {
+  if (o[key] < cfg.max) { o.t += dt; while (o.t >= cfg.regen && o[key] < cfg.max) { o.t -= cfg.regen; o[key]++; } }
+  if (o[key] >= cfg.max) o.t = 0;
 }
 
 // ---------- XP & Level ----------
@@ -163,8 +253,17 @@ function unlocksAt(lvl) {
   for (const [id, c] of Object.entries(CROPS)) if (c.level === lvl) out.push(ITEMS[id].icon + ' ' + ITEMS[id].name + ' (Saatgut)');
   for (const b of Object.values(BUILDINGS)) if (b.level === lvl) out.push(b.icon + ' ' + b.name);
   for (const u of Object.values(UPGRADES)) if (u.level === lvl) out.push(u.icon + ' ' + u.name + ' (Upgrade)');
-  for (const t of Object.values(PROJECTS)) if (t.level === lvl) out.push(t.icon + ' ' + t.name + ' (Stadt)');
-  if (lvl === POND.level) out.push('🎣 Angeln am Teich');
+  if (TOWN_ON) for (const t of Object.values(PROJECTS)) if (t.level === lvl) out.push(t.icon + ' ' + t.name + ' (Stadt)');
+  if (lvl === POND.level) out.push('🎣 Angeln am See');
+  if (lvl === BOAT.level) out.push('🚣 Ruderboot: seltene Fische');
+  if (lvl === MINE.level) out.push('⛏️ Altes Bergwerk');
+  const land = PARCELS.filter((p) => p.lv === lvl && lvl > 1).length;
+  if (land) out.push('🗺️ ' + (land > 1 ? land + ' neue Landstücke' : 'Neues Landstück') + ' kaufbar');
+  const deco = Object.values(DECO).filter((d) => d.lv === lvl && d.kind !== 'trader' && !d.start && !d.free && !d.stat);
+  if (deco.length) out.push('🌼 Deko: ' + deco.map((d) => d.name).join(', '));
+  for (const [id, h] of Object.entries(HOUSES)) if (h.lv === lvl && h.price) out.push('🏠 ' + h.name + ' (Haus-Ausbau)');
+  for (const [kind, list] of Object.entries(HOUSE_PARTS)) for (const [, p] of Object.entries(list)) if (p[1] === lvl && p[2]) out.push('🏠 ' + PART_LABEL[kind] + ': ' + p[0]);
+  for (const c of Object.values(CARS)) if (c.lv === lvl) out.push('🚗 ' + c.name);
   return out;
 }
 function addMoney(n, wx, wy) {
@@ -173,7 +272,7 @@ function addMoney(n, wx, wy) {
 }
 
 // ---------- Felder ----------
-const usable = (x, y) => inMap(x, y) && owned(x, y) && !tile(x, y).b;
+const usable = (x, y) => inMap(x, y) && owned(x, y) && !tile(x, y).b && !tile(x, y).d;
 
 // Was würde ein Klick auf diese Kachel tun? (für Ziehen mit der Maus)
 function actionFor(x, y, tool) {
@@ -357,22 +456,26 @@ function buyUpgrade(id) {
   if (l >= u.max || G.level < u.level || G.money < cost) return;
   G.money -= cost; G.upgrades[id] = l + 1; sfx('levelup');
 }
-function nextParcelInfo() { const k = G.stats.parcels; return { cost: parcelCost(k), level: parcelLevel(k + 1) }; }
-function parcelBuyable(i) {
-  if (G.parcels[i]) return false;
-  const px = i % PARCEL_COLS, py = Math.floor(i / PARCEL_COLS);
-  return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
-    const nx = px + dx, ny = py + dy;
-    return nx >= 0 && ny >= 0 && nx < PARCEL_COLS && ny < PARCEL_ROWS && G.parcels[ny * PARCEL_COLS + nx];
-  });
+// Landstücke: jedes hat sein eigenes Level, der Preis steigt mit jedem gekauften Stück und mit der Größe
+function cheapestParcel() {
+  let best = -1;
+  PARCELS.forEach((p, i) => { if (!G.parcels[i] && (best < 0 || p.lv < PARCELS[best].lv)) best = i; });
+  return best;
 }
+function nextParcelInfo(i) {
+  if (i === undefined) i = cheapestParcel();
+  if (i < 0) return { cost: 0, level: 99, i };
+  const p = PARCELS[i];
+  return { cost: parcelCost(G.stats.parcels, p.w * p.h), level: p.lv, i };
+}
+const parcelBuyable = (i) => i >= 0 && i < PARCELS.length && !G.parcels[i];
 function buyParcel(i) {
-  const { cost, level } = nextParcelInfo();
+  const { cost, level } = nextParcelInfo(i);
   if (!parcelBuyable(i) || G.level < level || G.money < cost) return false;
   G.money -= cost; G.parcels[i] = true; G.stats.parcels++;
   sfx('levelup');
-  const px = i % PARCEL_COLS, py = Math.floor(i / PARCEL_COLS);
-  fxDust((PARCEL_X0 + px * PARCEL + 2) * TILE, (PARCEL_Y0 + py * PARCEL + 2) * TILE, '#ffe28a', 30);
+  const p = PARCELS[i];
+  fxDust((p.x + p.w / 2) * TILE, (p.y + p.h / 2) * TILE, '#ffe28a', 30);
   return true;
 }
 
@@ -384,12 +487,16 @@ function orderPool() {
     if (o && !pool.includes(o)) pool.push(o);
   }
   if (G.stats.fished >= 3) pool.push('fisch');
+  if (G.stats.boated >= 3) pool.push('hecht');
+  if (G.mine.open && G.stats.mined >= 3) pool.push('stein', 'kohle');
   return pool;
 }
 // Ab welchem Level es eine Ware gibt (Aufträge wählen Neues öfter als Weizen)
 function itemLevel(id) {
   if (CROPS[id]) return CROPS[id].level;
   if (id === 'fisch') return POND.level;
+  if (id === 'hecht') return BOAT.level;
+  if (id === 'stein' || id === 'kohle') return MINE.level;
   let l = 99;
   for (const d of Object.values(BUILDINGS)) if (d.out === id) l = Math.min(l, d.level);
   return l === 99 ? 1 : l;
@@ -423,8 +530,14 @@ function completeOrder(i) {
 function skipOrder(i) { G.orders[i] = { wait: 20 }; }
 
 // ---------- Meilensteine ----------
-function statValue(stat) { return stat === 'animals' ? animalCount() : stat === 'coats' ? Object.keys(G.coats).length : G.stats[stat] || 0; }
-const claimable = () => ACHIEVEMENTS.filter((a) => !G.claimed[a.id] && statValue(a.stat) >= a.goal);
+function statValue(stat) {
+  if (stat === 'animals') return animalCount();
+  if (stat === 'coats') return Object.keys(G.coats).length;
+  if (stat === 'deco') return decoCount();
+  return G.stats[stat] || 0;
+}
+const achActive = (a) => TOWN_ON || a.stat !== 'projects'; // Stadt-Ziele vorerst ausgeblendet
+const claimable = () => ACHIEVEMENTS.filter((a) => achActive(a) && !G.claimed[a.id] && statValue(a.stat) >= a.goal);
 function claim(id) {
   const a = ACHIEVEMENTS.find((x) => x.id === id);
   if (!a || G.claimed[id] || statValue(a.stat) < a.goal) return;
@@ -432,19 +545,150 @@ function claim(id) {
   sfx('levelup'); toast('🏆 ' + a.name + ': +' + a.money + ' 💰', 'good');
 }
 
-// ---------- Teich ----------
-function catchFish() {
-  if (G.pond.fish <= 0) return null;
-  G.pond.fish--; const f = pick(FISH).id;
-  addInv(f, 1); G.stats.fished++;
-  const d = DECOR.find((x) => x.id === 'teich');
-  gainXP(POND.xp, (d.x + d.w / 2) * TILE, d.y * TILE + 10);
+// ---------- See: Angelsteg und Ruderboot ----------
+function catchFish(boat) {
+  const o = boat ? G.boat : G.pond;
+  if (o.fish <= 0) return null;
+  o.fish--; const f = pick(boat ? BOAT_FISH : FISH).id;
+  addInv(f, 1); G.stats.fished++; if (boat) G.stats.boated++;
+  const d = farmObj(boat ? 'boot' : 'steg');
+  gainXP(boat ? BOAT.xp : POND.xp, (d.x + d.w / 2) * TILE, d.y * TILE + 10);
   return f;
+}
+
+// ---------- Bergwerk ----------
+function openMine() {
+  if (G.mine.open || G.level < MINE.level || G.money < MINE.cost) return false;
+  G.money -= MINE.cost; G.mine.open = true; G.mine.finds = MINE.max; G.mine.t = 0;
+  sfx('levelup'); return true;
+}
+function mineFind() { // ein Fund pro aufgeschlagenem Gestein
+  if (!G.mine.open || G.mine.finds <= 0) return null;
+  G.mine.finds--; const f = pick(MINE_FINDS).id;
+  addInv(f, 1); G.stats.mined++;
+  const d = farmObj('bergwerk'); gainXP(MINE.xp, (d.x + 1.5) * TILE, (d.y + 2) * TILE);
+  return f;
+}
+
+// ---------- Deko ----------
+// Ein Deko-Stück steht auf Kacheln (t.d = Stück-Nummer). Wege/Zäune belegen je 1 Kachel.
+const decoCount = () => Object.values(G.deco).filter((d) => { const k = decoKind(d.t); return k !== 'path' && k !== 'fence'; }).length + Object.keys(G.pets).filter((p) => G.pets[p]).length;
+const beauty = () => Object.values(G.deco).reduce((s, d) => s + (decoKind(d.t) === 'path' || decoKind(d.t) === 'fence' ? 0.2 : decoBeauty(d.t)), 0)
+  + Object.keys(G.pets).filter((p) => G.pets[p]).reduce((s, p) => s + decoBeauty(p), 0);
+// freigeschaltet? (Level, Meilenstein, Stadtprojekt, Gebäude)
+function decoUnlocked(id) {
+  const d = DECO[id];
+  if (d.kind === 'trader' || d.start) return true;
+  if (d.free) return Object.values(G.deco).some((x) => x.t === d.free);
+  if (d.stat) return statValue(d.stat[0]) >= d.stat[1];
+  if (G.level < d.lv) return false;
+  if (TOWN_ON && d.town && !built(d.town)) return false;
+  if (TOWN_ON && d.allTown && !Object.keys(PROJECTS).every(built)) return false;
+  if (d.building && !Object.values(G.buildings).some((b) => b.type === d.building)) return false;
+  return true;
+}
+const decoNeed = (id) => DECO[id].need || {};
+const decoAffordable = (id) => G.money >= DECO[id].price && hasAll(decoNeed(id));
+function payDeco(id) {
+  if (!decoUnlocked(id) || !decoAffordable(id)) return false;
+  G.money -= DECO[id].price;
+  for (const [k, n] of Object.entries(decoNeed(id))) G.inv[k] -= n;
+  return true;
+}
+// Darf das Stück hier stehen? Eigenes Land (frei) oder eine Deko-Zone; Beete nur für Blumen.
+function decoTileOK(id, x, y, ignore) {
+  if (!inMap(x, y) || isRoad(x, y)) return false;
+  const t = tile(x, y);
+  if (t.b || t.c || (t.d && t.d !== ignore)) return false;
+  if (isBed(x, y)) return !!DECO[id].flower && decoW(id) === 1;
+  if (farmObjAt(x, y)) return false;
+  return owned(x, y) || !!zoneAt(x, y);
+}
+function decoOK(id, x, y, ignore) {
+  for (let dx = 0; dx < decoW(id); dx++) for (let dy = 0; dy < decoH(id); dy++) if (!decoTileOK(id, x + dx, y + dy, ignore)) return false;
+  return true;
+}
+function addDecoAt(id, x, y, extra = {}) {
+  const n = G.nextId++;
+  G.deco[n] = { id: n, t: id, x, y, ...extra };
+  for (let dx = 0; dx < decoW(id); dx++) for (let dy = 0; dy < decoH(id); dy++) { const t = tile(x + dx, y + dy); t.d = n; if (t.s === 'soil' && !t.c) t.s = 'grass'; }
+  return n;
+}
+// aus dem Lager aufstellen (frei) – oder direkt kaufen und aufstellen (Wege/Zäune, je Feld)
+function placeDeco(id, x, y, extra) {
+  if (!decoOK(id, x, y)) return 0;
+  if ((G.decoStore[id] || 0) > 0) G.decoStore[id]--;
+  else if (!payDeco(id)) return 0;
+  const n = addDecoAt(id, x, y, extra);
+  sfx(decoKind(id) === 'path' ? 'plow' : 'build');
+  fxDust((x + decoW(id) / 2) * TILE, (y + decoH(id) / 2) * TILE, '#ffe9a8', 10);
+  return n;
+}
+function buyDecoToStore(id) { if (!payDeco(id)) return false; G.decoStore[id] = (G.decoStore[id] || 0) + 1; sfx('coin'); return true; }
+function removeDecoTiles(d) { for (let dx = 0; dx < decoW(d.t); dx++) for (let dy = 0; dy < decoH(d.t); dy++) { const t = tile(d.x + dx, d.y + dy); if (t.d === d.id) t.d = null; } }
+function storeDeco(n) { // kostenlos ins Lager
+  const d = G.deco[n]; if (!d) return;
+  removeDecoTiles(d); delete G.deco[n];
+  G.decoStore[d.t] = (G.decoStore[d.t] || 0) + 1; sfx('click');
+}
+function moveDeco(n, x, y) {
+  const d = G.deco[n]; if (!d || !decoOK(d.t, x, y, n)) return false;
+  removeDecoTiles(d); d.x = x; d.y = y;
+  for (let dx = 0; dx < decoW(d.t); dx++) for (let dy = 0; dy < decoH(d.t); dy++) { const t = tile(x + dx, y + dy); t.d = n; if (t.s === 'soil' && !t.c) t.s = 'grass'; }
+  sfx('build'); return true;
+}
+const SIGN_MAX = 12;
+function setSignText(n, text) { const d = G.deco[n]; if (d) d.text = String(text || '').slice(0, SIGN_MAX); }
+function buyPet(id) {
+  if (G.pets[id] || !decoUnlocked(id) || !payDeco(id)) return false;
+  G.pets[id] = true; sfx('animal'); return true;
+}
+// Wanderhändler: jeden Tag ein anderes Sonderstück, das es sonst nirgends gibt
+const TRADER_ITEMS = Object.keys(DECO).filter((id) => DECO[id].kind === 'trader');
+function traderDay() { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+function traderOffer() {
+  const day = traderDay();
+  if (G.trader.day !== day) G.trader = { day, sold: false };
+  let h = 0; for (const ch of day) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return TRADER_ITEMS[h % TRADER_ITEMS.length];
+}
+function buyTrader() {
+  const id = traderOffer();
+  if (G.trader.sold || G.money < DECO[id].price) return false;
+  G.money -= DECO[id].price; G.trader.sold = true; G.decoStore[id] = (G.decoStore[id] || 0) + 1; sfx('lucky');
+  return true;
+}
+
+// ---------- Haus-Ausbau ----------
+const houseHas = (kind, id) => (G.house.have[kind] || []).includes(id);
+function partInfo(kind, id) {
+  if (kind === 'type') { const h = HOUSES[id]; return { name: h.name, lv: h.lv, price: h.price, need: h.need || {} }; }
+  const [name, lv, price] = HOUSE_PARTS[kind][id]; return { name, lv, price, need: {} };
+}
+function buyHousePart(kind, id) {
+  const p = partInfo(kind, id);
+  if (houseHas(kind, id)) { G.house[kind] = id; sfx('click'); return true; }
+  if (G.level < p.lv || G.money < p.price || !hasAll(p.need)) return false;
+  G.money -= p.price; for (const [k, n] of Object.entries(p.need)) G.inv[k] -= n;
+  (G.house.have[kind] = G.house.have[kind] || []).push(id); G.house[kind] = id;
+  sfx('levelup'); const o = farmObj('haus'); fxDust((o.x + o.w / 2) * TILE, (o.y + 2) * TILE, '#ffe28a', 26);
+  return true;
+}
+
+// ---------- Autos: immer genau eins auf dem Stellplatz ----------
+function buyCar(id) {
+  const c = CARS[id];
+  if (G.car.have.includes(id)) { G.car.cur = id; sfx('click'); return true; }
+  if (G.level < c.lv || G.money < c.price) return false;
+  G.money -= c.price; G.car.have.push(id); G.car.cur = id;
+  sfx('levelup'); const o = farmObj('stellplatz'); fxDust((o.x + 1) * TILE, (o.y + 1) * TILE, '#ffe28a', 20);
+  return true;
 }
 
 // ---------- Stadt ----------
 function projectState(id) {
   const t = PROJECTS[id];
+  if (!TOWN_ON) return 'locked';
   if (built(id)) return 'built';
   if (G.level < t.level) return 'locked';
   return G.money >= t.cost && hasAll(t.items) ? 'ready' : 'open';
@@ -455,7 +699,7 @@ function buildProject(id) {
   G.money -= t.cost;
   for (const [k, n] of Object.entries(t.items)) G.inv[k] -= n;
   G.town[id] = true; G.stats.projects++;
-  const l = t.lot, cx = (TOWN_X0 + l.x + l.w / 2) * TILE, cy = (l.y + l.h / 2) * TILE;
+  const l = t.lot, cx = (TOWN_X0 + l.x + l.w / 2) * TILE, cy = (TOWN_Y0 + l.y + l.h / 2) * TILE;
   fxDust(cx, cy, '#ffe28a', 34); gainXP(20 + t.level * 6, cx, cy);
   sfx('levelup');
   return true;
@@ -472,6 +716,7 @@ const TUTORIAL = [
   { text: () => 'Ab Level 2: Baue einen 🐔 Hühnerstall (🏪 Shop)', done: () => Object.values(G.buildings).some((b) => b.type === 'huehnerstall'), target: 'shop' },
   { text: () => TAP() + ' auf den Hühnerstall, um die Hühner mit Weizen zu füttern', done: () => G.stats.produced >= 1, target: 'stall' },
   { text: () => 'Kaufe ein neues Landstück: ' + TAP().toLowerCase() + ' auf ein Holzschild am Zaun', done: () => G.stats.parcels >= 1, target: 'parcel' },
+  { text: () => 'Mach deinen Hof schön: Kaufe im 🌼 Deko-Reiter deine erste Deko', done: () => decoCount() >= 5 || Object.values(G.deco).some((d) => !['fass', 'schubkarre', 'kisten', 'lilie'].includes(d.t)), target: 'deko' },
 ];
 const tutorialStep = () => TUTORIAL.find((s) => !s.done());
 function currentGoal() {

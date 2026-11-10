@@ -2,17 +2,48 @@
 'use strict';
 
 const TILE = 48;           // Pixel pro Kachel (Welt-Koordinaten)
-const MAP_W = 24;          // Kacheln breit
-const MAP_H = 16;          // Kacheln hoch
-const PARCEL = 4;          // ein Landstück = 4x4 Kacheln
-const PARCEL_X0 = 4;       // Landstücke beginnen bei Spalte 4
-const PARCEL_Y0 = 2;       // ... und Zeile 2
-const PARCEL_COLS = 5;
-const PARCEL_ROWS = 3;
-const START_PARCELS = [[0, 0], [1, 0]];
+// Update 6: neue, größere Karte aus dem Hof-Plan der Werkstatt (vorher 24 × 16)
+const MAP_W = 40;          // Kacheln breit (Hof)
+const MAP_H = 27;          // Kacheln hoch
 const TOWN_X0 = MAP_W;     // rechts neben dem Hof liegt die Stadt (nur Deko + Stadtprojekte, keine Felder)
 const TOWN_W = 10;
+const TOWN_Y0 = -1;        // Stadt eine Zeile nach oben verschoben, damit ihre Straße auf der Dorfstraße (Zeile 13) liegt
 const TOWN_NAME = 'Sonnenfeld';
+// Stadt vorerst ausgeschaltet (Marvin will sie später neu machen). Gebaute Projekte bleiben im Spielstand (G.town) erhalten.
+const TOWN_ON = false;
+// alte Karte (für den Umzug alter Spielstände)
+const OLD = { MAP_W: 24, MAP_H: 16, PARCEL: 4, X0: 4, Y0: 2, COLS: 5, ROWS: 3 };
+
+// Landstücke: wachsen mit dem Level – erst 4 × 4, dann 8 × 4, später 6 × 6 (x, y = linke obere Kachel)
+const PARCELS = [
+  { x: 14, y: 5, w: 4, h: 4, lv: 1 }, { x: 18, y: 5, w: 4, h: 4, lv: 1 }, { x: 22, y: 5, w: 4, h: 4, lv: 3 },
+  { x: 26, y: 5, w: 4, h: 4, lv: 5 }, { x: 30, y: 5, w: 4, h: 4, lv: 7 }, { x: 34, y: 5, w: 4, h: 4, lv: 9 },
+  { x: 14, y: 9, w: 4, h: 4, lv: 6 }, { x: 18, y: 9, w: 4, h: 4, lv: 8 }, { x: 22, y: 9, w: 8, h: 4, lv: 11 }, { x: 30, y: 9, w: 8, h: 4, lv: 13 },
+  { x: 14, y: 14, w: 6, h: 6, lv: 12 }, { x: 20, y: 14, w: 6, h: 6, lv: 15 }, { x: 26, y: 14, w: 6, h: 6, lv: 18 }, { x: 32, y: 14, w: 6, h: 6, lv: 22 },
+];
+const START_PARCELS = [0, 1];
+// Hof-Geometrie (Kacheln): Wege, Hofplatz, Stellplatz, Beete, feste Dinge, Deko-Zonen
+const FARM = {
+  road: { y: 13, x0: 5 },                     // Dorfstraße bis in die Stadt
+  stegweg: { x: 7, y0: 14, y1: 17 },           // Weg zum Angelsteg
+  minenweg: { x: 38, y0: 5, y1: 12 },          // Weg zum Bergwerk
+  yard: { x: 4, y: 6, w: 10, h: 5 },           // gepflasterter Hofplatz
+  link: { x: 7, y: 11, w: 3, h: 2 },           // Hofzufahrt
+  park: { x: 5, y: 11, w: 2, h: 2 },           // Stellplatz
+  beds: [[4, 6], [5, 6], [7, 6], [8, 6]],      // Vorgarten-Beete (nur Blumen)
+};
+// feste Dinge auf dem Hof (Kachel-Rechtecke zum Antippen; keine Deko darauf)
+const FARM_OBJ = [
+  { id: 'haus', x: 4, y: 3, w: 5, h: 3 }, { id: 'scheune', x: 10, y: 4, w: 3, h: 2 }, { id: 'kratzbaum', x: 13, y: 5, w: 1, h: 1 },
+  { id: 'hund', x: 4, y: 8, w: 2, h: 1 }, { id: 'hofladen', x: 10, y: 11, w: 3, h: 2 }, { id: 'tafel', x: 13, y: 12, w: 1, h: 1 },
+  { id: 'stellplatz', x: 5, y: 11, w: 2, h: 2 }, { id: 'steg', x: 6, y: 17, w: 2, h: 4 }, { id: 'boot', x: 6, y: 21, w: 2, h: 2 },
+  { id: 'bergwerk', x: 37, y: 2, w: 3, h: 3 }, { id: 'haendler', x: 10, y: 14, w: 2, h: 1 },
+];
+// Deko-Zonen außerhalb der Landstücke (dort liegen nie Felder)
+const DECO_ZONES = [
+  { name: 'Hofplatz', x: 4, y: 6, w: 10, h: 5 }, { name: 'Uferwiese', x: 14, y: 21, w: 24, h: 2 },
+  { name: 'Seeufer', x: 8, y: 14, w: 6, h: 3 }, { name: 'Waldrand', x: 2, y: 14, w: 4, h: 3 },
+];
 
 // Alles, was in der Scheune liegen kann
 const ITEMS = {
@@ -38,6 +69,12 @@ const ITEMS = {
   krebs:     { name: 'Krebs',     icon: '🦀', price: 32 },
   tropenfisch: { name: 'Tropenfisch', icon: '🐠', price: 70 },
   stiefel:   { name: 'Alter Stiefel', icon: '👢', price: 1 },
+  hecht:     { name: 'Hecht',     icon: '🐟', price: 160 },
+  goldkarpfen: { name: 'Goldkarpfen', icon: '🐠', price: 420 },
+  stein:     { name: 'Stein',     icon: '🪨', price: 8 },
+  kohle:     { name: 'Kohle',     icon: '⚫', price: 18 },
+  eisenerz:  { name: 'Eisenerz',  icon: '⛓️', price: 40 },
+  edelstein: { name: 'Edelstein', icon: '💎', price: 220 },
 };
 
 // Pflanzen: Saatgut-Kosten, Wachstum in Sekunden, XP pro Ernte
@@ -129,11 +166,17 @@ const COAT_TIERS = [
   { name: 'legendär',    weight: 2,  value: 5000, color: '#d4a017' },
 ];
 
-// Teich: Fische wachsen nach, Fang ist Zufall
+// See (Angelsteg): Fische wachsen nach, Fang ist Zufall
 const POND = { level: 2, max: 5, regen: 120, xp: 2 };
 const FISH = [
   { id: 'fisch', weight: 58 }, { id: 'krebs', weight: 20 }, { id: 'tropenfisch', weight: 8 }, { id: 'stiefel', weight: 14 },
 ];
+// Ruderboot (ab Level 14): rausfahren und seltene Fische fangen
+const BOAT = { level: 14, max: 3, regen: 180, xp: 6 };
+const BOAT_FISH = [{ id: 'hecht', weight: 55 }, { id: 'tropenfisch', weight: 25 }, { id: 'goldkarpfen', weight: 12 }, { id: 'krebs', weight: 8 }];
+// Bergwerk (ab Level 16): Stollen einmal freiräumen, dann Gestein abbauen
+const MINE = { level: 16, cost: 5000, max: 6, regen: 120, xp: 4, hits: 3 };
+const MINE_FINDS = [{ id: 'stein', weight: 52 }, { id: 'kohle', weight: 26 }, { id: 'eisenerz', weight: 16 }, { id: 'edelstein', weight: 6 }];
 
 // Markt: wer sehr viel vom Gleichen verkauft, drückt kurz den Preis (Aufträge zahlen immer voll)
 const MARKET = { minFactor: 0.35, recover: 480 }; // tiefster Preis 35 %, erholt sich in 8 Minuten ganz
@@ -163,10 +206,114 @@ const upgradeCost = (id, lvl) => Math.round(UPGRADES[id].base * Math.pow(2.2, lv
 // XP für den nächsten Level
 const xpForLevel = (lvl) => Math.floor(22 * lvl * lvl + 10); // Update 4: etwas flacher, weil Pflanzen jetzt länger wachsen
 
-// Landstück-Preis: k = Anzahl schon dazugekaufter Stücke
-const parcelCost = (k) => Math.round(200 * Math.pow(1.85, k) / 10) * 10;
-// n = wievieltes gekauftes Landstück (1, 2, 3 …) → benötigter Level
-const parcelLevel = (n) => 2 * n;
+// Landstück-Preis: k = Anzahl schon dazugekaufter Stücke, größere Stücke kosten nach Fläche mehr
+const parcelCost = (k, area = 16) => Math.round(200 * Math.pow(1.85, k) * area / 16 / 10) * 10;
+
+// ---------- Deko (Update 6, alles aus der Deko-Werkstatt) ----------
+// kind: 'item' (steht auf 1 Kachel oder w×h), 'path' (Weg, je Feld), 'fence' (Zaun, je Feld, verbindet sich),
+//       'sign' (Schild mit eigenem Text), 'pet' (lebendig, ohne Platz), 'trader' (nur beim Wanderhändler)
+// spr = Bild im Deko-Atlas (js/deko.js), lv = Level, price = Münzen (bleibt immer gleich), need = zusätzliche Waren
+const DECO_CATS = [['blumen', 'Blumen & Beete'], ['gruen', 'Sträucher & Bäume'], ['natur', 'Steine & Pilze'], ['hof', 'Hof & Handwerk'],
+  ['teich', 'Rund ums Angeln'], ['fest', 'Fest & Prunk'], ['licht', 'Licht & Feuer'], ['schilder', 'Schilder'], ['leben', 'Lebendige Deko'],
+  ['wege', 'Wege'], ['zaeune', 'Zäune'], ['haendler', 'Vom Wanderhändler']];
+const DECO = {
+  wildblumen:   { name: 'Wildblumen',     cat: 'blumen', lv: 1,  price: 10,   spr: 'd_wildblumen', flower: true },
+  glockenblume: { name: 'Glockenblumen',  cat: 'blumen', lv: 2,  price: 25,   spr: 'd_glockenblume', flower: true },
+  goldblume:    { name: 'Goldsterne',     cat: 'blumen', lv: 2,  price: 30,   spr: 'd_goldblume', flower: true },
+  lilie:        { name: 'Rote Lilien',    cat: 'blumen', lv: 3,  price: 40,   spr: 'd_lilie', flower: true },
+  fackellilie:  { name: 'Fackellilien',   cat: 'blumen', lv: 4,  price: 60,   spr: 'd_fackellilie', flower: true },
+  lila:         { name: 'Veilchen',       cat: 'blumen', lv: 5,  price: 80,   spr: 'd_lila', flower: true },
+  rosa:         { name: 'Rosenstrauch',   cat: 'blumen', lv: 6,  price: 95,   spr: 'd_rosa', flower: true },
+  rosenbogen:   { name: 'Rosenbogen',     cat: 'blumen', lv: 8,  price: 280,  spr: 'd_rosenbogen' },
+  rittersporn:  { name: 'Rittersporn',    cat: 'blumen', lv: 9,  price: 150,  spr: 'd_rittersporn', flower: true },
+  busch:        { name: 'Runder Busch',   cat: 'gruen',  lv: 2,  price: 45,   spr: 'd_busch' },
+  farn:         { name: 'Farn',           cat: 'gruen',  lv: 4,  price: 45,   spr: 'd_farn' },
+  beerenbusch:  { name: 'Beerenstrauch',  cat: 'gruen',  lv: 5,  price: 60,   spr: 'd_beerenbusch' },
+  holunder:     { name: 'Holunder',       cat: 'gruen',  lv: 7,  price: 90,   spr: 'd_holunder' },
+  tanne:        { name: 'Tanne',          cat: 'gruen',  lv: 7,  price: 320,  spr: 'd_tanne', w: 2, h: 2 },
+  eiche:        { name: 'Alte Eiche',     cat: 'gruen',  lv: 10, price: 750,  spr: 'd_eiche', w: 2, h: 2 },
+  steine:       { name: 'Feldsteine',     cat: 'natur',  lv: 2,  price: 35,   spr: 'd_steine' },
+  pilze:        { name: 'Fliegenpilz',    cat: 'natur',  lv: 3,  price: 50,   spr: 'd_pilz', icon: 'd_pilze' },
+  stumpf:       { name: 'Baumstumpf',     cat: 'natur',  lv: 5,  price: 50,   spr: 'd_stumpf' },
+  steinmann:    { name: 'Steinmännchen',  cat: 'natur',  lv: 7,  price: 70,   spr: 'd_steinmann' },
+  felsen:       { name: 'Felsgruppe',     cat: 'natur',  lv: 12, price: 900,  spr: 'd_felsen', w: 2, h: 2 },
+  kisten:       { name: 'Kistenstapel',   cat: 'hof',    lv: 3,  price: 70,   spr: 'd_kisten' },
+  fass:         { name: 'Regenfass',      cat: 'hof',    lv: 4,  price: 60,   spr: 'd_fass' },
+  kuerbiskiste: { name: 'Apfelkiste',     cat: 'hof',    lv: 4,  price: 220,  spr: 'd_kuerbiskiste' },
+  vogelscheuche:{ name: 'Vogelscheuche',  cat: 'hof',    lv: 6,  price: 260,  spr: 'd_vogelscheuche', note: 'Lockt Krähen an' },
+  ziehbrunnen:  { name: 'Ziehbrunnen',    cat: 'hof',    lv: 9,  price: 1100, spr: 'd_ziehbrunnen' },
+  schubkarre:   { name: 'Schubkarre',     cat: 'hof',    lv: 99, price: 0,    atlas: 'schubkarre', start: true },
+  fischtafel:   { name: 'Fisch-Trophäe',  cat: 'teich',  lv: 2,  price: 0,    spr: 'd_fischtafel', stat: ['fished', 25], unlockText: 'bei 25 Fischen' },
+  gestell:      { name: 'Fisch-Trockengestell', cat: 'teich', lv: 6, price: 300, spr: 'd_gestell', w: 2, h: 1 },
+  netz:         { name: 'Fischernetz',    cat: 'teich',  lv: 8,  price: 260,  spr: 'd_netz', w: 2, h: 1 },
+  hai:          { name: 'Hai-Trophäe',    cat: 'teich',  lv: 2,  price: 2500, spr: 'd_hai', w: 2, h: 1, stat: ['fished', 200], unlockText: 'bei 200 Fischen' },
+  picknick:     { name: 'Festtafel',      cat: 'fest',   lv: 10, price: 480,  spr: 'd_picknick', w: 2, h: 1 },
+  riesenfass:   { name: 'Erntedank-Fass', cat: 'fest',   lv: 11, price: 600,  spr: 'd_riesenfass' },
+  stand:        { name: 'Hofladen-Stand', cat: 'fest',   lv: 13, price: 2400, spr: 'd_stand', w: 2, h: 2, town: 'markt', unlockText: 'mit Wochenmarkt' },
+  banner:       { name: 'Wappenbanner',   cat: 'fest',   lv: 14, price: 900,  spr: 'd_banner', w: 1, h: 2 },
+  engel:        { name: 'Engelsstatue',   cat: 'fest',   lv: 16, price: 4500, spr: 'd_engel', w: 1, h: 2, need: { edelstein: 3 } },
+  drache:       { name: 'Drachenstatue',  cat: 'fest',   lv: 19, price: 9000, spr: 'd_drache', w: 2, h: 2, need: { edelstein: 10, eisenerz: 20 }, allTown: true, unlockText: 'alle Stadtprojekte' },
+  windlicht:    { name: 'Windlicht',      cat: 'licht',  lv: 3,  price: 40,   spr: 'd_windlicht', light: 'glow' },
+  fackel:       { name: 'Fackel',         cat: 'licht',  lv: 3,  price: 60,   spr: 'd_fackel', light: 'flame' },
+  laterne:      { name: 'Hoflaterne',     cat: 'licht',  lv: 5,  price: 180,  spr: 'd_laterne', light: 'glow' },
+  lichterkette: { name: 'Lichterkette',   cat: 'licht',  lv: 7,  price: 260,  spr: 'd_lichterkette', w: 2, h: 1, light: 'twinkle' },
+  feuerschale:  { name: 'Feuerschale',    cat: 'licht',  lv: 10, price: 420,  spr: 'd_feuerschale', light: 'flame' },
+  kerzenstaender:{ name: 'Kerzenständer', cat: 'licht',  lv: 12, price: 650,  spr: 'd_kerzenstaender', light: 'glow' },
+  gluehwuermchen:{ name: 'Glühwürmchen',  cat: 'licht',  lv: 13, price: 900,  spr: 'd_gluehwuermchen', light: 'fireflies' },
+  schild_pfahl: { name: 'Pfahlschild',    cat: 'schilder', lv: 1,  price: 30,  kind: 'sign', spr: 's_pfahl', icon: 'd_schild_pfahl', text: [43, 4, '#3b2412'] },
+  schild_haenge:{ name: 'Hängeschild',    cat: 'schilder', lv: 6,  price: 80,  kind: 'sign', spr: 's_haenge', icon: 'd_schild_haenge', text: [50, 16, '#3b2412'] },
+  schild_kreide:{ name: 'Kreidetafel',    cat: 'schilder', lv: 8,  price: 120, kind: 'sign', spr: 's_kreide', icon: 'd_schild_kreide', text: [43, 7, '#f2f2ea'] },
+  schild_weg:   { name: 'Wegweiser',      cat: 'schilder', lv: 10, price: 200, kind: 'sign', spr: 's_weg', icon: 'd_schild_weg', text: [42, 6, '#3b2412'] },
+  schild_messing:{ name: 'Messingschild', cat: 'schilder', lv: 12, price: 400, kind: 'sign', spr: 's_messing', icon: 'd_schild_messing', text: [45, 12, '#5a4210'] },
+  katze:        { name: 'Hofkatze mit Kratzbaum', cat: 'leben', lv: 6, price: 900, kind: 'pet', spr: 'd_katze', note: 'Kratzbaum an der Scheune, die Katze streift über den Hof' },
+  kueken:       { name: 'Entenküken',     cat: 'leben',  lv: 8,  price: 350,  kind: 'pet', spr: 'd_kueken', note: 'Schwimmen der Entenmama auf dem See hinterher' },
+  kraehe:       { name: 'Krähen',         cat: 'leben',  lv: 6,  price: 0,    kind: 'pet', spr: 'd_kraehe', free: 'vogelscheuche', note: 'Kommen von allein, sobald eine Vogelscheuche steht' },
+  esel:         { name: 'Esel',           cat: 'leben',  lv: 11, price: 2600, kind: 'pet', spr: 'd_esel', building: 'pferdestall', unlockText: 'mit Pferdestall', note: 'Grast auf der Uferwiese' },
+  sandweg:      { name: 'Sandweg',        cat: 'wege', lv: 1,  price: 5,  kind: 'path', spr: 'd_sandweg' },
+  pfl_kies:     { name: 'Kies',           cat: 'wege', lv: 3,  price: 8,  kind: 'path', spr: 'd_pfl_kies' },
+  pfl_kopf:     { name: 'Kopfsteinpflaster', cat: 'wege', lv: 4, price: 12, kind: 'path', spr: 'd_pfl_kopf' },
+  pfl_fein:     { name: 'Feines Pflaster', cat: 'wege', lv: 7, price: 15, kind: 'path', spr: 'd_pfl_fein' },
+  pfl_holz:     { name: 'Holzbohlen',     cat: 'wege', lv: 8,  price: 18, kind: 'path', spr: 'd_pfl_holz' },
+  pfl_ziegel:   { name: 'Ziegelpflaster', cat: 'wege', lv: 9,  price: 22, kind: 'path', spr: 'd_pfl_ziegel' },
+  pfl_platten:  { name: 'Steinplatten',   cat: 'wege', lv: 11, price: 30, kind: 'path', spr: 'd_pfl_platten' },
+  pfl_marmor:   { name: 'Marmorplatten',  cat: 'wege', lv: 15, price: 40, kind: 'path', spr: 'd_pfl_marmor' },
+  zaun_holz:    { name: 'Holzzaun',       cat: 'zaeune', lv: 2,  price: 10, kind: 'fence', spr: 'd_zaun_holz', pal: ['#6b4423', '#8a5a32'] },
+  zaun_staketen:{ name: 'Staketenzaun',   cat: 'zaeune', lv: 4,  price: 14, kind: 'fence', spr: 'd_zaun_staketen', pal: ['#f4efe2', '#d6cdb8'] },
+  zaun_weide:   { name: 'Weidenzaun',     cat: 'zaeune', lv: 5,  price: 16, kind: 'fence', spr: 'd_zaun_weide', pal: ['#7d5f36', '#9b7a4c'] },
+  zaun_jaeger:  { name: 'Jägerzaun',      cat: 'zaeune', lv: 7,  price: 20, kind: 'fence', spr: 'd_zaun_jaeger', pal: ['#7a4b25', '#a8774a'] },
+  zaun_mauer:   { name: 'Steinmauer',     cat: 'zaeune', lv: 9,  price: 26, kind: 'fence', spr: 'd_zaun_mauer', pal: ['#8f969c', '#b0aa9f'] },
+  zaun_gruen:   { name: 'Grüne Latten',   cat: 'zaeune', lv: 11, price: 30, kind: 'fence', spr: 'd_zaun_gruen', pal: ['#3f6f3a', '#7cbc70'] },
+  zaun_hoch:    { name: 'Sichtschutz',    cat: 'zaeune', lv: 12, price: 36, kind: 'fence', spr: 'd_zaun_hoch', pal: ['#553418', '#7a4b25'] },
+  zaun_eisen:   { name: 'Schmiedeeisen',  cat: 'zaeune', lv: 14, price: 45, kind: 'fence', spr: 'd_zaun_eisen', pal: ['#2a2a2e', '#d9b04a'] },
+  goldpilz:     { name: 'Goldener Fliegenpilz', cat: 'haendler', lv: 1, price: 600,  kind: 'trader', spr: 'd_goldpilz' },
+  kristallmann: { name: 'Kristall-Steinmännchen', cat: 'haendler', lv: 1, price: 900, kind: 'trader', spr: 'd_kristallmann' },
+  goldlaterne:  { name: 'Goldene Laterne', cat: 'haendler', lv: 1, price: 1500, kind: 'trader', spr: 'd_goldlaterne', light: 'glow' },
+  goldengel:    { name: 'Goldener Engel', cat: 'haendler', lv: 1, price: 12000, kind: 'trader', spr: 'd_goldengel', w: 1, h: 2 },
+};
+const decoKind = (id) => DECO[id].kind || 'item';
+const decoW = (id) => DECO[id].w || 1, decoH = (id) => DECO[id].h || 1;
+const decoBeauty = (id) => Math.max(1, Math.round(Math.sqrt(Math.max(10, DECO[id].price)) / 2));
+
+// ---------- Haus-Ausbau und Autos ----------
+const HOUSES = {
+  haeuschen:    { name: 'Häuschen',      lv: 1,  price: 0,     desc: '1 Stockwerk' },
+  familienhaus: { name: 'Familienhaus',  lv: 10, price: 8000,  desc: '2 Stockwerke' },
+  landhaus:     { name: 'Landhaus',      lv: 18, price: 40000, desc: 'edel, mit Veranda', need: { stein: 30, eisenerz: 10 } },
+};
+const HOUSE_PARTS = {
+  wall: { weiss: ['Weiß', 1, 0], gelb: ['Gelb', 3, 150], salbei: ['Salbei', 5, 300], rosa: ['Rosa', 7, 500], blau: ['Blau', 11, 1200] },
+  roof: { rot: ['Rot', 1, 0], schiefer: ['Schiefer', 3, 150], braun: ['Braun', 5, 300], gruen: ['Grün', 7, 500], blau: ['Blau', 11, 1200] },
+  door: { holz: ['Holztür', 1, 0], gruen: ['Grüne Tür', 4, 200], bogen: ['Rundbogentür', 7, 600], doppel: ['Doppeltür', 12, 1500] },
+  win:  { klein: ['Fenster', 1, 0], laden: ['Fenster mit Läden', 5, 300], blumen: ['Blumenkasten', 8, 700], gross: ['Großes Fenster', 10, 1200] },
+};
+const PART_LABEL = { wall: 'Wandfarbe', roof: 'Dachfarbe', door: 'Haustür', win: 'Fenster' };
+const CARS = {
+  quad:     { name: 'Quad',            lv: 4,  price: 1200,  desc: 'flink über den Hof' },
+  kombi:    { name: 'Familienauto',    lv: 8,  price: 4000,  desc: 'Kombi für die ganze Familie' },
+  suv:      { name: 'Geländewagen',    lv: 11, price: 9000,  desc: 'kommt überall hin' },
+  pickup:   { name: 'Pickup',          lv: 13, price: 15000, desc: 'mit Ladefläche' },
+  oldtimer: { name: 'Oldtimer-Pickup', lv: 20, price: 40000, desc: 'edel und selten' },
+};
 
 // Meilensteine: stat = Zähler im Spielstand, Belohnung in Münzen + XP
 const ACHIEVEMENTS = [
@@ -192,6 +339,10 @@ const ACHIEVEMENTS = [
   { id: 't2', name: 'Bürgermeister',    stat: 'projects',  goal: 7,     money: 5000, xp: 500 },
   { id: 'r1', name: 'Pferdezüchter',    stat: 'foals',     goal: 5,     money: 800,  xp: 100 },
   { id: 'r2', name: 'Pferdeflüsterer',  stat: 'coats',     goal: 7,     money: 8000, xp: 800 },
+  { id: 'd1', name: 'Blumenhof',        stat: 'deco',      goal: 10,    money: 150,  xp: 30 },
+  { id: 'd2', name: 'Prachthof',        stat: 'deco',      goal: 50,    money: 2000, xp: 250 },
+  { id: 'b1', name: 'Bergmann',         stat: 'mined',     goal: 50,    money: 1500, xp: 200 },
 ];
 const STAT_LABEL = { harvested: 'Ernte', earned: 'Verdiene Münzen', orders: 'Erfülle Aufträge', animals: 'Besitze Tiere', produced: 'Produziere Waren',
-  parcels: 'Kaufe Landstücke', fished: 'Fange Fische', projects: 'Baue Stadtprojekte', foals: 'Züchte Fohlen', coats: 'Entdecke Fellfarben' };
+  parcels: 'Kaufe Landstücke', fished: 'Fange Fische', projects: 'Baue Stadtprojekte', foals: 'Züchte Fohlen', coats: 'Entdecke Fellfarben',
+  deco: 'Stelle Deko auf', mined: 'Baue im Bergwerk ab' };

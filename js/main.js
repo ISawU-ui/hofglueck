@@ -12,10 +12,34 @@ function localPt(e) { const r = canvas.getBoundingClientRect(); return { x: e.cl
 function tileAt(pt) {
   const w = screenToWorld(pt.x, pt.y);
   if (S.placing) { const d = BUILDINGS[S.placing]; return { x: Math.floor(w.x / TILE - d.w / 2 + 0.5), y: Math.floor(w.y / TILE - d.h / 2 + 0.5) }; }
+  if (S.decoPlace) { const id = S.decoPlace.id; return { x: Math.floor(w.x / TILE - decoW(id) / 2 + 0.5), y: Math.floor(w.y / TILE - decoH(id) / 2 + 0.5) }; }
   return { x: Math.floor(w.x / TILE), y: Math.floor(w.y / TILE) };
+}
+// Wege und Zäune werden wie Felder „gemalt“: jedes neue Feld kostet seinen Preis
+const isPaintDeco = () => S.decoPlace && !S.decoPlace.move && ['path', 'fence'].includes(decoKind(S.decoPlace.id));
+function paintDeco(x, y) {
+  const id = S.decoPlace.id;
+  if (!decoOK(id, x, y)) return false;
+  if (!(G.decoStore[id] > 0) && !decoAffordable(id)) { toast('Nicht genug Geld!', 'bad'); return false; }
+  return placeDeco(id, x, y) > 0;
+}
+// Deko an der Vorschau-Stelle aufstellen (bzw. verschieben)
+function confirmDeco() {
+  const dp = S.decoPlace, h = S.hover; if (!dp || !h) return;
+  if (dp.move) {
+    if (moveDeco(dp.move, h.x, h.y)) { S.decoPlace = null; S.hover = null; toast('Verschoben ✔', 'good'); }
+    else toast('Hier geht es nicht (eigenes Land oder Deko-Zone, frei).', 'bad');
+    return;
+  }
+  const n = placeDeco(dp.id, h.x, h.y);
+  if (!n) { toast(!decoOK(dp.id, h.x, h.y) ? (isBed(h.x, h.y) ? 'Ins Beet passen nur Blumen.' : 'Hier geht es nicht (eigenes Land oder Deko-Zone, frei).') : 'Nicht genug Geld!', 'bad'); return; }
+  S.decoPlace = null; S.hover = null;
+  if (decoKind(G.deco[n].t) === 'sign') askSignText(n);
+  else toast(DECO[G.deco[n].t].name + ' aufgestellt! 🌼', 'good');
 }
 
 function act(x, y) {
+  if (S.tool === 'schaufel' && inMap(x, y) && tile(x, y).d && (!drag || drag === 'shovel')) { storeDeco(tile(x, y).d); return 'remove'; } // Deko mit der Spitzhacke einlagern
   const a = actionFor(x, y, S.tool);
   if (!a || (drag && GROUP[a] !== drag)) return null;
   doAction(x, y, a, S.tool);
@@ -24,24 +48,40 @@ function act(x, y) {
 }
 
 // Tippen auf Dinge, die keine Feld-Aktion sind (wird erst beim Loslassen ausgelöst)
+// kurzer Hinweis an der getippten Stelle (verschwindet nach 3 Sekunden)
+function tapInfo(x, y, title, text) { S.tapInfo = { x: (x + 0.5) * TILE, y: y * TILE + 10, title, text, until: performance.now() + 3000 }; sfx('click'); }
 function tapAt(x, y) {
-  if (S.placing) { S.hover = { x, y }; renderUI(); return; } // Bauen: Vorschau dorthin setzen, bestätigt wird mit ✔
-  if (townHit(x, y) && y > 0 && y < MAP_H - 1) { openTab('stadt'); sfx('click'); return; }
+  if (S.placing || S.decoPlace) { S.hover = { x, y }; renderUI(); return; } // Bauen/Deko: Vorschau dorthin setzen, bestätigt wird mit ✔
+  if (townHit(x, y)) { openTab('stadt'); sfx('click'); return; }
   if (!inMap(x, y)) return;
   const t = tile(x, y);
   if (t.b) { clickBuilding(G.buildings[t.b]); renderUI(); return; }
-  const dec = DECOR.find((d) => x >= d.x && x < d.x + d.w && y >= d.y && y < d.y + d.h);
-  if (dec && dec.id === 'teich') { openPond(); sfx('click'); return; }
-  if (dec) { openTab({ tafel: 'auftraege', scheune: 'scheune', haus: 'erfolge' }[dec.id]); sfx('click'); return; }
+  if (t.d && G.deco[t.d]) { openDecoMenu(t.d); sfx('click'); return; }
+  const o = farmObjAt(x, y) || (SCN.lakeV((x + 0.5) * TILE, (y + 0.5) * TILE) > 0 ? { id: 'see' } : null);
+  if (o) {
+    switch (o.id) {
+      case 'haus': openHouse(); return;
+      case 'scheune': openTab('scheune'); sfx('click'); return;
+      case 'hofladen': case 'tafel': openTab('auftraege'); sfx('click'); return;
+      case 'stellplatz': openCars(); return;
+      case 'kratzbaum': if (G.pets.katze) { toast('😺 Die Hofkatze schnurrt.'); sfx('animal'); } return;
+      case 'hund': toast('🐶 Der Hofhund wedelt mit dem Schwanz.'); sfx('animal'); fxPop((o.x + 1) * TILE, o.y * TILE, '❤️'); return;
+      case 'haendler': openTrader(); return;
+      case 'steg': case 'see': if (G.level < POND.level) tapInfo(x, y, 'See & Angelsteg', 'Angeln ab Level ' + POND.level); else { openPond(); sfx('click'); } return;
+      case 'boot': if (G.level < BOAT.level) tapInfo(x, y, 'Ruderboot', 'Freigeschaltet ab Level ' + BOAT.level); else { openPond(true); sfx('click'); } return;
+      case 'bergwerk': if (G.level < MINE.level) tapInfo(x, y, 'Altes Bergwerk', 'Freigeschaltet ab Level ' + MINE.level); else { openMinePanel(); sfx('click'); } return;
+    }
+  }
   const p = parcelAt(x, y);
-  if (p && !G.parcels[p.i] && parcelBuyable(p.i)) { askParcel(p.i); return; }
+  if (p && !G.parcels[p.i]) { askParcel(p.i); return; }
   if (S.tool === 'hand' && t.s === 'soil' && !t.c && owned(x, y)) toast('✋ Umsehen ist aktiv – wähle links eine Pflanze zum Säen');
 }
 // liegt der Punkt auf der Bau-Vorschau? (dann verschiebt Ziehen die Vorschau statt der Karte)
 function onGhost(pt) {
-  if (!S.placing || !S.hover) return false;
-  const w = screenToWorld(pt.x, pt.y), d = BUILDINGS[S.placing], h = S.hover;
-  return w.x >= h.x * TILE - 10 && w.x <= (h.x + d.w) * TILE + 10 && w.y >= h.y * TILE - 10 && w.y <= (h.y + d.h) * TILE + 10;
+  if (!(S.placing || S.decoPlace) || !S.hover) return false;
+  const w = screenToWorld(pt.x, pt.y), h = S.hover;
+  const dw = S.placing ? BUILDINGS[S.placing].w : decoW(S.decoPlace.id), dh = S.placing ? BUILDINGS[S.placing].h : decoH(S.decoPlace.id);
+  return w.x >= h.x * TILE - 10 && w.x <= (h.x + dw) * TILE + 10 && w.y >= h.y * TILE - 10 && w.y <= (h.y + dh) * TILE + 10;
 }
 
 function onDown(e) {
@@ -59,11 +99,15 @@ function onDown(e) {
   if (closeDrawer()) { mode = null; return; } // offenes Menü auf dem Handy: erst schließen
   const { x, y } = tileAt(pt);
   S.hover = { x, y };
-  if (S.placing) {
-    if (e.pointerType === 'mouse') { S.hover = { x, y }; confirmPlace(); mode = null; renderUI(); return; } // Maus: Klick = bauen
+  if (isPaintDeco()) { // Wege/Zäune: über die Felder ziehen
+    if (paintDeco(x, y)) { mode = 'decopaint'; lastTile = x + ',' + y; renderUI(); } else { mode = 'maybeTap'; startPt = pt; }
+    return;
+  }
+  if (S.placing || S.decoPlace) {
+    if (e.pointerType === 'mouse') { S.hover = { x, y }; if (S.placing) confirmPlace(); else confirmDeco(); mode = null; renderUI(); return; } // Maus: Klick = bauen
     mode = onGhost(pt) ? 'moveGhost' : 'maybeTap'; startPt = pt; return; // Touch: erst Vorschau, dann ✔
   }
-  if (inMap(x, y) && !tile(x, y).b && actionFor(x, y, S.tool)) {
+  if (inMap(x, y) && !tile(x, y).b && (actionFor(x, y, S.tool) || (S.tool === 'schaufel' && tile(x, y).d && ['path', 'fence'].includes(decoKind(G.deco[tile(x, y).d].t))))) {
     if (e.pointerType === 'mouse') { pend = { x, y }; commitPaint(); }
     else { mode = 'pendingPaint'; pend = { x, y, timer: setTimeout(commitPaint, 90) }; }
     return;
@@ -92,7 +136,8 @@ function onMove(e) {
   }
   const pos = tileAt(pt);
   if (mode === 'moveGhost') { S.hover = pos; return; }
-  if (S.placing && e.pointerType !== 'mouse') { /* Vorschau bleibt stehen, Karte wird verschoben */ }
+  if (mode === 'decopaint') { const key = pos.x + ',' + pos.y; S.hover = pos; if (key !== lastTile) { lastTile = key; paintDeco(pos.x, pos.y); } return; }
+  if ((S.placing || S.decoPlace) && e.pointerType !== 'mouse') { /* Vorschau bleibt stehen, Karte wird verschoben */ }
   else if (e.pointerType === 'mouse' || mode) S.hover = pos;
   if (mode === 'maybeTap' && Math.hypot(pt.x - startPt.x, pt.y - startPt.y) > 8) mode = 'pan';
   if (mode === 'pan') { panBy(pt.x - startPt.x, pt.y - startPt.y); startPt = pt; }
@@ -103,7 +148,7 @@ function onMove(e) {
   }
   if (e.pointerType === 'mouse') {
     const t = inMap(pos.x, pos.y) && tile(pos.x, pos.y);
-    canvas.style.cursor = mode === 'pan' ? 'grabbing' : S.placing || (t && (t.b || actionFor(pos.x, pos.y, S.tool))) ? 'pointer' : 'grab';
+    canvas.style.cursor = mode === 'pan' ? 'grabbing' : S.placing || S.decoPlace || (t && (t.b || t.d || actionFor(pos.x, pos.y, S.tool))) || farmObjAt(pos.x, pos.y) ? 'pointer' : 'grab';
   }
 }
 
@@ -111,10 +156,10 @@ function onUp(e) {
   pointers.delete(e.pointerId);
   if (mode === 'pendingPaint') commitPaint();
   if (mode === 'maybeTap' && e.type === 'pointerup') { const { x, y } = tileAt(localPt(e)); tapAt(x, y); }
-  if (mode === 'paint') renderUI();
+  if (mode === 'paint' || mode === 'decopaint') renderUI();
   if (mode === 'pinch' && pointers.size === 1) { mode = 'pan'; startPt = [...pointers.values()][0]; return; }
   if (mode === 'moveGhost') renderUI();
-  if (pointers.size === 0) { mode = null; drag = null; lastTile = null; if (e.pointerType !== 'mouse' && !S.placing) S.hover = null; }
+  if (pointers.size === 0) { mode = null; drag = null; lastTile = null; if (e.pointerType !== 'mouse' && !S.placing && !S.decoPlace) S.hover = null; }
 }
 
 function clickBuilding(b) {
@@ -128,10 +173,12 @@ function clickBuilding(b) {
 }
 
 function onKey(e) {
-  if (e.key === 'Escape') { if (!$('#modal').hidden && $('#modal').dataset.kind !== 'slotstart') closeModal(); S.placing = null; closeDrawer(); renderUI(); return; }
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.key !== 'Escape') return; // Schildtext tippen
+  if (e.key === 'Escape') { if (!$('#modal').hidden && $('#modal').dataset.kind !== 'slotstart') closeModal(); S.placing = null; S.decoPlace = null; closeDrawer(); renderUI(); return; }
   if (e.key === 's' || e.key === 'S') { handleAct('tool', 'schaufel'); renderUI(); return; }
   if (e.key === 'h' || e.key === 'H') { handleAct('tool', 'hand'); renderUI(); return; }
   if (e.key === 'Enter' && S.placing) { confirmPlace(); renderUI(); return; }
+  if (e.key === 'Enter' && S.decoPlace && !isPaintDeco()) { confirmDeco(); renderUI(); return; }
   if (e.key === '+' || e.key === '=') { const c = availCenter(); zoomAt(1.25, c.x, c.y); return; }
   if (e.key === '-') { const c = availCenter(); zoomAt(0.8, c.x, c.y); return; }
   const n = parseInt(e.key, 10), ids = Object.keys(CROPS);
@@ -164,9 +211,10 @@ function start() {
   canvas.addEventListener('wheel', (e) => { e.preventDefault(); const p = localPt(e); zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, p.x, p.y); }, { passive: false });
   canvas.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    if (S.placing) { S.placing = null; renderUI(); return; }
+    if (S.placing || S.decoPlace) { S.placing = null; S.decoPlace = null; renderUI(); return; }
     const { x, y } = tileAt(localPt(e));
     if (inMap(x, y) && tile(x, y).b) openBuilding(tile(x, y).b);
+    else if (inMap(x, y) && tile(x, y).d) openDecoMenu(tile(x, y).d);
   });
   $('#zoombtns').addEventListener('click', (e) => {
     const b = e.target.closest('[data-zoom]'); if (!b) return;

@@ -4,12 +4,14 @@
 const $ = (s) => document.querySelector(s);
 const TABS = [
   { id: 'shop', icon: '🏪', label: 'Shop' },
+  { id: 'deko', icon: '🌼', label: 'Deko' },
   { id: 'scheune', icon: '📦', label: 'Scheune' },
   { id: 'auftraege', icon: '📋', label: 'Aufträge' },
   { id: 'stadt', icon: '🏘️', label: 'Stadt' },
   { id: 'upgrades', icon: '⬆️', label: 'Upgrades' },
   { id: 'erfolge', icon: '🏆', label: 'Ziele' },
 ];
+if (!TOWN_ON) TABS.splice(TABS.findIndex((t) => t.id === 'stadt'), 1); // Stadt vorerst ausgeblendet
 let tab = 'auftraege';
 const lastHtml = {};
 const modalQueue = [];
@@ -79,8 +81,22 @@ function handleAct(act, arg) {
   switch (act) {
     case 'tool': S.tool = arg; S.placing = null; sfx('click'); break;
     case 'build': startPlacing(arg); break;
-    case 'placeok': confirmPlace(); break;
-    case 'placecancel': S.placing = null; S.hover = null; break;
+    case 'placeok': if (S.decoPlace) confirmDeco(); else confirmPlace(); break;
+    case 'placecancel': S.placing = null; S.decoPlace = null; S.hover = null; break;
+    case 'decobuy': decoBuy(arg); break;
+    case 'decoplace': startDecoPlace(arg); break;
+    case 'decopaint': startDecoPlace(arg); break;
+    case 'decomove': { const d = G.deco[+arg]; closeModal(); if (d) { S.decoPlace = { id: d.t, move: d.id, text: d.text }; S.hover = { x: d.x, y: d.y }; closeDrawer(); toast(isTouch() ? 'Tippe oder ziehe dorthin, wo es stehen soll – dann ✔' : 'Klicke dorthin, wo es stehen soll (Esc = abbrechen)'); } break; }
+    case 'decostore': storeDeco(+arg); closeModal(); toast('Ins Lager gelegt 📦'); break;
+    case 'decotext': askSignText(+arg); break;
+    case 'signsave': { const inp = document.getElementById('signtext'); setSignText(+arg, inp ? inp.value : ''); closeModal(); toast('Schild beschriftet ✍️', 'good'); break; }
+    case 'pet': if (buyPet(arg)) { toast(DECO[arg].name + ' ist da! ' + (DECO[arg].note || ''), 'good'); confetti(); } break;
+    case 'trader': if (buyTrader()) { closeModal(); toast('Gekauft! Liegt im 🌼 Deko-Lager.', 'good'); confetti(); } break;
+    case 'housepart': { const [k, id] = arg.split(':'); if (!buyHousePart(k, id)) toast('Noch nicht möglich', 'bad'); openHouse(true); break; }
+    case 'car': if (!buyCar(arg)) toast('Noch nicht möglich', 'bad'); openCars(true); break;
+    case 'carnone': G.car.cur = null; openCars(true); break;
+    case 'mineopen': if (openMine()) { toast('⛏️ Der Stollen ist frei! Hau rein.', 'good'); confetti(); } openMinePanel(); break;
+    case 'minehit': mineHit(); break;
     case 'sell': sell(arg, 1); break;
     case 'sellall': sell(arg, inv(arg)); break;
     case 'order': completeOrder(+arg); break;
@@ -108,10 +124,10 @@ function handleAct(act, arg) {
     case 'fish': fishTap(); break;
     case 'intro': showIntro(+arg); break;
     case 'introdone': G.introDone = true; save(); closeModal(); break;
-    case 'newsdone': G.seen = NEWS_VERSION; save(); closeModal(); break;
+    case 'newsdone': G.seen = NEWS_VERSION; G.moved = null; save(); closeModal(); break;
     case 'reset': resetGame(); closeModal(); resetCam(); showIntro(0); break;
     case 'slot': pickSlot(+arg); break;
-    case 'slotdel': deleteSlot(+arg); openSlots(slotsAtStart); break;
+    case 'slotdel': { const cur = +arg === slot; deleteSlot(+arg); if (cur) { S.placing = null; S.decoPlace = null; resetCam(); toast('Spielstand ' + arg + ' gelöscht – neuer Hof!', 'good'); } openSlots(slotsAtStart); break; }
     case 'gotab': closeModal(); openTab(arg); break;
     case 'close': closeModal(); break;
   }
@@ -176,11 +192,16 @@ function renderUI() {
 
   // Bau-Leiste (Vorschau bestätigen)
   const pb = $('#placebar');
-  pb.hidden = !S.placing;
+  pb.hidden = !S.placing && !S.decoPlace;
   if (S.placing) {
     const d = BUILDINGS[S.placing], ok = S.hover && canPlace(S.placing, S.hover.x, S.hover.y);
     setHtml($('#placeinfo'), `${d.icon} <b>${d.name}</b> · 💰 ${fmt(d.cost)}${ok ? '' : ' · <span class="miss">hier kein Platz</span>'}`);
-    $('#placeok').disabled = !ok || G.money < d.cost;
+    $('#placeok').disabled = !ok || G.money < d.cost; $('#placeok').hidden = false; $('#placeok').textContent = '✔ Bauen';
+  } else if (S.decoPlace) {
+    const id = S.decoPlace.id, d = DECO[id], paint = isPaintDeco(), ok = S.hover && decoOK(id, S.hover.x, S.hover.y, S.decoPlace.move);
+    const cost = S.decoPlace.move ? 'verschieben' : (G.decoStore[id] > 0 ? 'aus dem Lager' : '💰 ' + fmt(d.price) + (paint ? ' je Feld' : ''));
+    setHtml($('#placeinfo'), `🌼 <b>${d.name}</b> · ${cost}${paint ? ' · über die Felder ziehen' : ok ? '' : ' · <span class="miss">hier nicht</span>'}`);
+    $('#placeok').hidden = paint; $('#placeok').disabled = !ok; $('#placeok').textContent = '✔ Aufstellen';
   }
 
   // Reiter + Abzeichen
@@ -189,17 +210,19 @@ function renderUI() {
     auftraege: G.orders.filter((o) => o.wait === undefined && hasAll(o.items)).length,
     erfolge: claimable().length,
     stadt: Object.keys(PROJECTS).filter((id) => projectState(id) === 'ready').length,
+    deko: Object.values(G.decoStore).reduce((a, n) => a + n, 0),
   };
-  const hintTab = step && step.target === 'shop' && G.level >= 2 ? 'shop' : step && step.target === 'tafel' && counts.auftraege ? 'auftraege' : null;
+  const hintTab = step && step.target === 'shop' && G.level >= 2 ? 'shop' : step && step.target === 'tafel' && counts.auftraege ? 'auftraege' : step && step.target === 'deko' ? 'deko' : null;
   document.querySelectorAll('#tabs button').forEach((b) => {
     b.classList.toggle('sel', b.dataset.tab === tab);
     b.classList.toggle('hint', b.dataset.tab === hintTab && !(tab === hintTab && $('#panel').classList.contains('open')));
     const n = counts[b.dataset.tab] || 0, bd = b.querySelector('.badge');
     bd.hidden = !n; bd.textContent = n;
   });
-  setHtml($('#content'), ({ shop: shopHtml, scheune: barnHtml, auftraege: ordersHtml, stadt: townHtml, upgrades: upgradesHtml, erfolge: achHtml })[tab]());
+  setHtml($('#content'), ({ shop: shopHtml, deko: decoHtml, scheune: barnHtml, auftraege: ordersHtml, stadt: townHtml, upgrades: upgradesHtml, erfolge: achHtml })[tab]());
   if (openBuildingId && $('#modal').dataset.kind === 'building') openBuilding(openBuildingId, true);
   if ($('#modal').dataset.kind === 'pond') fishInfo();
+  if ($('#modal').dataset.kind === 'mine') mineInfo();
 }
 
 function shopCard(id, d) {
@@ -221,7 +244,7 @@ function shopHtml() {
     h += `<h3>${title}</h3>` + list.map(([id, d]) => shopCard(id, d)).join('');
   }
   h += `<h3>Land</h3><div class="card"><div class="big">🗺️</div><div class="grow">${TAP()} auf ein Holzschild am Zaun, um ein neues Landstück zu kaufen.<br>
-    <small>Nächstes: 💰 ${fmt(next.cost)} · ab Level ${next.level}</small></div></div>`;
+    <small>${next.i >= 0 ? `Nächstes: ${PARCELS[next.i].w}×${PARCELS[next.i].h} Felder · 💰 ${fmt(next.cost)} · ab Level ${next.level}` : 'Du besitzt alles Land!'}</small></div></div>`;
   return h;
 }
 
@@ -281,9 +304,9 @@ function upgradesHtml() {
 }
 
 function achHtml() {
-  const list = ACHIEVEMENTS.filter((a) => !G.claimed[a.id]);
-  const done = ACHIEVEMENTS.length - list.length;
-  let h = `<p class="hint">${done} / ${ACHIEVEMENTS.length} Ziele erreicht</p>`;
+  const all = ACHIEVEMENTS.filter(achActive), list = all.filter((a) => !G.claimed[a.id]);
+  const done = all.length - list.length;
+  let h = `<p class="hint">${done} / ${all.length} Ziele erreicht</p>`;
   // pro Kategorie nur das nächste Ziel zeigen
   const seen = {};
   for (const a of list) {
@@ -394,11 +417,11 @@ function onFoal(b, isNew) {
 }
 
 // ---------- Angeln ----------
-const fish = { state: 'idle', timer: null };
-function openPond() {
-  if (G.level < POND.level) { toast('🎣 Angeln gibt es ab Level ' + POND.level, 'bad'); return; }
-  fish.state = 'idle';
-  openModal(`<h2>🎣 Angeln</h2>
+const fish = { state: 'idle', timer: null, boat: false };
+function openPond(boat) {
+  if (G.level < (boat ? BOAT.level : POND.level)) { toast((boat ? '🚣 Das Ruderboot gibt es ab Level ' + BOAT.level : '🎣 Angeln gibt es ab Level ' + POND.level), 'bad'); return; }
+  fish.state = 'idle'; fish.boat = !!boat;
+  openModal(`<h2>${boat ? '🚣 Mit dem Boot auf dem See' : '🎣 Angeln am Steg'}</h2>${boat ? '<p class="small">Draußen auf dem See beißen seltene Fische: Hecht und Goldkarpfen!</p>' : ''}
     <div id="fishscene" class="fishscene" data-act="fish"><i class="line"></i><i class="bob"></i><b class="bite">❗</b><span class="catch" id="fishcatch"></span></div>
     <p id="fishmsg">Wirf die Angel aus. Wenn der Schwimmer abtaucht: schnell tippen!</p>
     <p class="small" id="fishinfo"></p>
@@ -407,8 +430,8 @@ function openPond() {
 }
 function fishInfo() {
   const el = document.getElementById('fishinfo'); if (!el) return;
-  const p = G.pond, next = p.fish < POND.max ? ` · nächster in ${Math.ceil(POND.regen - p.t)}s` : '';
-  el.textContent = `🐟 Fische im Teich: ${p.fish} / ${POND.max}${next}`;
+  const cfg = fish.boat ? BOAT : POND, p = fish.boat ? G.boat : G.pond, next = p.fish < cfg.max ? ` · nächster in ${Math.ceil(cfg.regen - p.t)}s` : '';
+  el.textContent = `🐟 Fische ${fish.boat ? 'draußen auf dem See' : 'am Steg'}: ${p.fish} / ${cfg.max}${next}`;
 }
 function fishSet(state, msg, btn) {
   fish.state = state;
@@ -422,14 +445,14 @@ function fishTap() {
   clearTimeout(fish.timer);
   if (fish.state === 'wait') { fishSet('idle', '😬 Zu früh! Der Fisch ist erschrocken. Nochmal!', 'Angel auswerfen'); sfx('bad'); return; }
   if (fish.state === 'bite') {
-    const f = catchFish();
-    if (!f) { fishSet('idle', 'Der Teich ist leer.', 'Angel auswerfen'); return; }
+    const f = catchFish(fish.boat);
+    if (!f) { fishSet('idle', 'Gerade beißt nichts mehr.', 'Angel auswerfen'); return; }
     document.getElementById('fishcatch').textContent = ITEMS[f].icon;
     fishSet('caught', f === 'stiefel' ? 'Oh … ein alter Stiefel 👢. Passiert den Besten!' : `Gefangen: <b>${ITEMS[f].icon} ${ITEMS[f].name}</b>! Liegt in der Scheune.`, 'Nochmal auswerfen');
-    sfx(f === 'tropenfisch' ? 'lucky' : f === 'stiefel' ? 'bad' : 'harvest');
+    sfx(f === 'tropenfisch' || f === 'goldkarpfen' ? 'lucky' : f === 'stiefel' ? 'bad' : 'harvest'); if (f === 'goldkarpfen') confetti();
     return;
   }
-  if (G.pond.fish <= 0) { fishSet('idle', 'Der Teich braucht eine Pause – gleich schwimmen wieder Fische herbei.', 'Angel auswerfen'); return; }
+  if ((fish.boat ? G.boat : G.pond).fish <= 0) { fishSet('idle', 'Der See braucht eine Pause – gleich schwimmen wieder Fische herbei.', 'Angel auswerfen'); return; }
   fishSet('wait', 'Warte … gleich beißt einer an …', 'Ziehen!');
   sfx('plant');
   fish.timer = setTimeout(() => {
@@ -447,7 +470,8 @@ function introSlides() {
     { icon: '🌾', title: 'Säen & Ernten', text: `Wähle links eine Pflanze und ${t ? 'tippe' : 'klicke'} auf ein Feld. Ist sie reif (✨), ${t ? 'tippe' : 'klicke'} sie an.<br>
       <b>Tipp:</b> ${t ? 'Wische mit dem Finger' : 'Halte die Maus gedrückt und ziehe'} über viele Felder – dann geht alles auf einmal.` },
     { icon: '💰', title: 'Geld verdienen', text: 'Erfülle Aufträge an der 📋 Tafel – das bringt am meisten. Oder verkaufe Waren in der 📦 Scheune.' },
-    { icon: '⭐', title: 'Größer werden', text: 'Ernten und Aufträge geben XP. Jedes Level schaltet Neues frei: Tiere, Obstbäume, Angeln, die Stadt und Pferde. Neues Land kaufst du über die Holzschilder am Zaun.' },
+    { icon: '⭐', title: 'Größer werden', text: 'Ernten und Aufträge geben XP. Jedes Level schaltet Neues frei: Tiere, Obstbäume, Angeln, Pferde und Deko. Neues Land kaufst du über die Holzschilder am Zaun.' },
+    { icon: '🌼', title: 'Dein Hof, dein Stil', text: `Im Reiter <b>🌼 Deko</b> kaufst du Blumen, Bäume, Laternen, Wege, Zäune und Schilder. ${t ? 'Tippe' : 'Klicke'} aufs <b>Haus</b> für Farben, Türen und Fenster, auf den <b>Stellplatz</b> für Autos. Am See angelst du ab Level 2.` },
     { icon: '✋', title: 'Bedienung', text: t ? '✋ <b>Umsehen</b> (oben links): nichts wird aus Versehen gesät.<br>Zwei Finger = zoomen & verschieben, ⌂ = zurück zum Hof.<br>❓ oben zeigt diese Hilfe wieder.'
       : '✋ <b>Umsehen</b>: nichts wird aus Versehen gesät. Mausrad = zoomen, ziehen auf leerer Fläche = verschieben, ⌂ = zurück zum Hof. Tasten: 1–7 Saatgut, H Hand, S Spitzhacke. ❓ zeigt diese Hilfe wieder.' },
   ];
@@ -475,10 +499,10 @@ function openSlots(atStart, away) {
     h += `<div class="slot${cur ? ' cur' : ''}${info ? '' : ' empty'}"><div class="sn">${n}</div><div class="si"><b>Spielstand ${n}${cur ? ' <em>aktiv</em>' : ''}</b>`;
     h += info ? `<small>⭐ Level ${info.level} · 💰 ${fmt(Math.floor(info.money))}<br>zuletzt ${whenText(info.last)}</small>` : '<small>leer – hier beginnt ein neuer Hof</small>';
     h += `</div><div class="sb">`;
-    if (info && !cur) h += `<button class="ghost danger" data-act="slotdel:${n}" data-confirm="Löschen?" title="Spielstand löschen">🗑️</button>`;
+    if (info) h += `<button class="ghost danger" data-act="slotdel:${n}" data-confirm="${cur ? 'Neu anfangen?' : 'Löschen?'}" title="${cur ? 'Diesen Hof löschen und neu anfangen' : 'Spielstand löschen'}">🗑️</button>`;
     h += `<button data-act="slot:${n}">${cur ? (atStart ? 'Weiterspielen' : 'Zurück') : info ? 'Laden' : 'Neues Spiel'}</button></div></div>`;
   }
-  h += '</div></div>';
+  h += '</div><p class="small">🗑️ löscht einen Spielstand (zweimal tippen). Beim aktiven Hof heißt das: neu anfangen.</p></div>';
   openModal(h, atStart ? 'slotstart' : 'slots');
 }
 function pickSlot(n) {
@@ -499,19 +523,23 @@ function showIntro(i) {
     <button data-act="${last ? 'introdone' : 'intro:' + (i + 1)}">${last ? "Los geht's!" : 'Weiter →'}</button></div></div>`, 'intro');
 }
 function showNews() {
-  openModal(`<div class="intro"><div class="ico">🎉</div><h2>Neu auf dem Hof!</h2><ul class="news">
-    <li>🎨 <b>Neue Grafik</b>: Hof, Tiere und die Stadt ${TOWN_NAME} in liebevoller Pixel-Art</li>
-    <li>🏘️ Die Stadt füllt sich: mit jedem Stadtprojekt ziehen neue Bewohner ein</li>
-    <li>🌾 <b>Fairere Pflanzen</b>: Weizen braucht jetzt 30 s. Lange Pflanzen wie 🎃 und 🍓 bringen viel pro Ernte – ideal vor einer Pause</li>
-    <li>📋 <b>Abwechslungsreichere Aufträge</b>: weniger Weizen, mehr von deinen neuen Waren – und etwas mehr XP</li>
-    <li>🐔 Tiere, Obstbäume und Werkstätten brauchen etwas länger, dafür lohnt sich jedes Level mehr</li>
+  const moved = G.moved ? `<li>🚚 <b>Dein Hof ist umgezogen</b>: Felder, Pflanzen und Gebäude stehen jetzt rechts vom neuen Hofplatz.${G.moved.refunds && G.moved.refunds.length ? ' Für ' + G.moved.refunds.join(', ') + ' war kein Platz – du hast den vollen Preis zurück.' : ''}</li>` : '';
+  openModal(`<div class="intro"><div class="ico">🎉</div><h2>Neu auf dem Hof!</h2><ul class="news">${moved}
+    <li>🗺️ <b>Viel größere Karte</b>: Hofplatz mit Wohnhaus und Scheune, See mit Angelsteg, Wald und ein Berg mit altem Bergwerk</li>
+    <li>🌾 <b>Mehr Land</b>: 16 Landstücke, mit steigendem Level auch große 8×4- und 6×6-Felder</li>
+    <li>🌼 <b>Deko</b> (neuer Reiter): Blumen, Bäume, Laternen, Wege, Zäune, Schilder mit eigenem Text, Hofkatze, Entenküken … – Stück für Stück freischalten</li>
+    <li>🏠 <b>Haus-Ausbau</b>: ${TAP()} aufs Haus – Farben, Türen, Fenster, später Familienhaus und Landhaus</li>
+    <li>🚗 <b>Autos</b>: ${TAP()} auf den Stellplatz – vom Quad bis zum Oldtimer-Pickup (vorerst als Deko)</li>
+    <li>🚣 Ab Level 14 Ruderboot, ab Level 16 Bergwerk · 🧺 täglich ein Wanderhändler</li>
+    <li>✨ Reife Felder blinken nicht mehr – sie sind einfach heller</li>
+    <li>💾 Spielstände kann man jetzt auch löschen und neu anfangen</li>
   </ul><button data-act="newsdone">Super!</button></div>`, 'news');
 }
 
 function askParcel(i) {
-  const { cost, level } = nextParcelInfo();
+  const { cost, level } = nextParcelInfo(i), p = PARCELS[i];
   const ok = G.level >= level, rich = G.money >= cost;
-  openModal(`<h2>🗺️ Neues Landstück</h2><p>4×4 Felder mehr Platz für Äcker und Gebäude.</p>
+  openModal(`<h2>🗺️ Neues Landstück</h2><p>${p.w}×${p.h} Felder mehr Platz für Äcker, Tiere und Gebäude.</p>
     <p><b>💰 ${fmt(cost)}</b> · benötigt Level ${level}</p>
     ${!ok ? `<p class="miss">Du brauchst Level ${level}.</p>` : !rich ? '<p class="miss">Nicht genug Geld.</p>' : ''}
     <div class="row"><button class="ghost" data-act="close">Abbrechen</button><button data-act="parcel:${i}" ${ok && rich ? '' : 'disabled'}>Kaufen</button></div>`);
@@ -520,8 +548,7 @@ function askParcel(i) {
 function onLevelUp(lvl, bonus) {
   sfx('levelup');
   const u = unlocksAt(lvl);
-  const k = G.stats.parcels;
-  const land = parcelLevel(k + 1) === lvl ? '<li>🗺️ Neues Landstück kaufbar</li>' : '';
+  const land = '';
   const html = `<div class="levelup"><div class="star">⭐</div><h2>Level ${lvl}!</h2><p>Bonus: <b>+${bonus} 💰</b></p>
     ${u.length || land ? '<h3>Neu freigeschaltet</h3><ul>' + u.map((x) => '<li>' + x + '</li>').join('') + land + '</ul>' : ''}
     <button data-act="close">Weiter</button></div>`;
@@ -546,4 +573,155 @@ function toast(text, kind = '') {
   while ($('#toasts').children.length > 3) $('#toasts').firstChild.remove();
   setTimeout(() => t.classList.add('out'), 2600);
   setTimeout(() => t.remove(), 3100);
+}
+
+// ================= Update 6: Deko, Haus-Ausbau, Autos, Bergwerk, Händler =================
+const decoImg = (id) => { const d = DECO[id], k = d.icon || d.spr; const u = d.atlas ? '' : SCN.decoIconURL(k); return u ? `<img class="pix" src="${u}" alt="">` : '<span class="big">🌼</span>'; };
+const iconURLs = {};
+const iconImg = (type, key) => { const k = type + '|' + key; if (!iconURLs[k]) iconURLs[k] = SCN.iconCanvas(type, key).toDataURL(); return `<img class="pix" src="${iconURLs[k]}" alt="">`; };
+function decoLockText(id) {
+  const d = DECO[id];
+  if (d.free) return 'kommt mit der ' + DECO[d.free].name;
+  if (d.stat && statValue(d.stat[0]) < d.stat[1]) return '🔒 ' + d.unlockText + ' (' + statValue(d.stat[0]) + ')';
+  if (G.level < d.lv) return '🔒 Level ' + d.lv;
+  if (TOWN_ON && d.town && !built(d.town)) return '🔒 ' + d.unlockText;
+  if (TOWN_ON && d.allTown && !Object.keys(PROJECTS).every(built)) return '🔒 ' + d.unlockText;
+  if (d.building && !Object.values(G.buildings).some((b) => b.type === d.building)) return '🔒 ' + d.unlockText;
+  return '';
+}
+function decoCard(id) {
+  const d = DECO[id], k = decoKind(id), lock = decoUnlocked(id) ? '' : decoLockText(id), store = G.decoStore[id] || 0;
+  const need = Object.keys(decoNeed(id)).length ? ' + ' + itemList(decoNeed(id), true) : '';
+  const price = d.price ? '💰 ' + fmt(d.price) + (k === 'path' || k === 'fence' ? '/Feld' : '') : 'geschenkt';
+  const size = k === 'path' || k === 'fence' ? 'je Feld' : k === 'pet' ? '' : decoW(id) + '×' + decoH(id);
+  let btn;
+  if (k === 'pet') btn = G.pets[id] ? '<button disabled>✔ Da</button>' : d.free ? `<button disabled>${decoUnlocked(id) ? '✔ Da' : 'Vogelscheuche'}</button>`
+    : `<button data-act="pet:${id}" ${lock || !decoAffordable(id) ? 'disabled' : ''}>${lock || price}</button>`;
+  else if (lock) btn = `<button disabled>${lock}</button>`;
+  else btn = `<button data-act="decoplace:${id}" ${store || decoAffordable(id) ? '' : 'disabled'}>${store ? 'Aufstellen' : k === 'path' || k === 'fence' ? 'Verlegen' : 'Kaufen'}</button>`;
+  return `<div class="dcard ${lock ? 'locked' : ''}"><div class="dimg">${decoImg(id)}</div><b>${d.name}</b>
+    <small>${lock ? '' : price + need}${size ? ' · ' + size : ''}${store ? ' · 📦 ' + store : ''}</small>${btn}</div>`;
+}
+function decoHtml() {
+  const placed = decoCount();
+  let h = `<p class="hint">🌟 Hof-Schönheit: <b>${fmt(beauty())}</b> · ${placed} Deko aufgestellt<br>
+    Deko steht auf deinem Land und in den Deko-Zonen (Hofplatz, Seeufer, Waldrand, Uferwiese). In die Beete vor dem Haus passen Blumen.
+    ${TAP()} auf Deko zum Verschieben oder Einlagern. Der Preis bleibt immer gleich.</p>`;
+  const off = traderOffer(), od = DECO[off];
+  h += `<div class="card trader"><div class="dimg">${decoImg(off)}</div><div class="grow"><b>🧺 Wanderhändler</b><br><small>Heute: ${od.name} – gibt es nur bei ihm</small></div>
+    <button data-act="trader" ${G.trader.sold || G.money < od.price ? 'disabled' : ''}>${G.trader.sold ? 'Morgen wieder' : '💰 ' + fmt(od.price)}</button></div>`;
+  const stored = Object.keys(G.decoStore).filter((id) => G.decoStore[id] > 0 && DECO[id]);
+  if (stored.length) h += '<h3>📦 Lager</h3><div class="dgrid">' + stored.map((id) => `<div class="dcard"><div class="dimg">${decoImg(id)}</div><b>${DECO[id].name}</b><small>× ${G.decoStore[id]}</small>
+    <button data-act="decoplace:${id}">Aufstellen</button></div>`).join('') + '</div>';
+  for (const [cat, name] of DECO_CATS) {
+    if (cat === 'haendler') continue;
+    const ids = Object.keys(DECO).filter((id) => DECO[id].cat === cat && !DECO[id].start).sort((a, b) => DECO[a].lv - DECO[b].lv);
+    if (ids.length) h += `<h3>${name}</h3><div class="dgrid">` + ids.map(decoCard).join('') + '</div>';
+  }
+  return h;
+}
+function findDecoSpot(id) {
+  const c = availCenter(), w = screenToWorld(c.x, c.y);
+  let best = null, bd = 1e9;
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
+    if (!decoOK(id, x, y)) continue;
+    const dd = Math.hypot((x + 0.5) * TILE - w.x, (y + 0.5) * TILE - w.y); if (dd < bd) { bd = dd; best = { x, y }; }
+  }
+  return best;
+}
+function startDecoPlace(id) {
+  if (!(G.decoStore[id] > 0) && !decoAffordable(id)) { toast('Nicht genug Geld!', 'bad'); return; }
+  S.placing = null; S.decoPlace = { id }; closeDrawer(); closeModal();
+  const paint = ['path', 'fence'].includes(decoKind(id));
+  S.hover = paint ? null : findDecoSpot(id);
+  toast(paint ? (isTouch() ? 'Wische über die Felder, um zu verlegen – ✖ beendet' : 'Klicke oder ziehe über die Felder (Esc beendet)')
+    : isTouch() ? 'Tippe oder ziehe dorthin, wo es stehen soll – dann ✔' : 'Klicke dorthin, wo es stehen soll (Esc = abbrechen)');
+}
+function decoBuy(id) { if (buyDecoToStore(id)) toast(DECO[id].name + ' liegt im Lager 📦'); }
+function openDecoMenu(n) {
+  const d = G.deco[n]; if (!d) return;
+  const def = DECO[d.t], sign = decoKind(d.t) === 'sign';
+  openModal(`<h2>🌼 ${def.name}</h2><div class="decoprev">${decoImg(d.t)}</div>${sign ? `<p>Text: <b>${d.text ? d.text.replace(/</g, '&lt;') : '(leer)'}</b></p>` : ''}
+    <div class="row">${sign ? `<button data-act="decotext:${n}">✍️ Beschriften</button>` : ''}<button data-act="decomove:${n}">↔️ Verschieben</button><button data-act="decostore:${n}">📦 Einlagern</button></div>
+    <div class="row"><button class="ghost" data-act="close">Schließen</button></div>`, 'deco');
+}
+function askSignText(n) {
+  const d = G.deco[n]; if (!d) return;
+  const v = (d.text || '').replace(/"/g, '&quot;');
+  openModal(`<h2>✍️ Schild beschriften</h2><p class="small">Bis ${SIGN_MAX} Zeichen, z. B. „Kartoffeln“ oder „Omas Ecke“.</p>
+    <input id="signtext" class="textin" maxlength="${SIGN_MAX}" value="${v}" autocomplete="off" onkeydown="if(event.key==='Enter'){handleAct('signsave','${n}');renderUI();}">
+    <div class="row"><button class="ghost" data-act="close">Abbrechen</button><button data-act="signsave:${n}">Speichern</button></div>`, 'sign');
+  setTimeout(() => { const i = document.getElementById('signtext'); if (i) i.focus(); }, 60);
+}
+
+// ---------- Haus-Ausbau ----------
+function partBtn(kind, id) {
+  const p = partInfo(kind, id), have = houseHas(kind, id), cur = G.house[kind] === id, lock = G.level < p.lv;
+  const needTxt = Object.keys(p.need).length ? ' + ' + itemList(p.need, true) : '';
+  const label = cur ? '✔ aktiv' : have ? 'Wählen' : lock ? '🔒 Lv ' + p.lv : (p.price ? '💰 ' + fmt(p.price) : 'gratis') + needTxt;
+  const can = have || (!lock && G.money >= p.price && hasAll(p.need));
+  return `<button class="opt ${cur ? 'cur' : ''}" data-act="housepart:${kind}:${id}" ${cur || !can ? 'disabled' : ''}>${iconImg(kind, id)}<b>${p.name}</b><small>${label}</small></button>`;
+}
+function openHouse(refresh) {
+  if (refresh && $('#modal').dataset.kind !== 'house') return;
+  const hc = SCN.houseCanvas(G.house), prev = hc.toDataURL();
+  let h = `<h2>🏠 Haus-Ausbau</h2><div class="housepreview"><img class="pix" src="${prev}" alt=""></div>
+    <p class="small">Gekaufte Farben, Türen und Fenster nimmst du beim Umzug ins nächste Haus mit.</p>`;
+  h += '<h3>Grundhaus</h3><div class="opts">' + Object.keys(HOUSES).map((id) => partBtn('type', id)).join('') + '</div>';
+  for (const kind of ['wall', 'roof', 'door', 'win']) h += `<h3>${PART_LABEL[kind]}</h3><div class="opts">` + Object.keys(HOUSE_PARTS[kind]).map((id) => partBtn(kind, id)).join('') + '</div>';
+  h += '<div class="row"><button class="ghost" data-act="close">Fertig</button></div>';
+  openModal(h, 'house');
+}
+// ---------- Autos ----------
+function openCars(refresh) {
+  if (refresh && $('#modal').dataset.kind !== 'cars') return;
+  let h = `<h2>🚗 Stellplatz</h2><p class="small">Hier steht immer genau ein Auto. Gekaufte Autos kannst du jederzeit wieder hinstellen.</p><div class="opts">`;
+  for (const [id, c] of Object.entries(CARS)) {
+    const have = G.car.have.includes(id), cur = G.car.cur === id, lock = G.level < c.lv;
+    const label = cur ? '✔ steht da' : have ? 'Hinstellen' : lock ? '🔒 Lv ' + c.lv : '💰 ' + fmt(c.price);
+    h += `<button class="opt car ${cur ? 'cur' : ''}" data-act="car:${id}" ${cur || (!have && (lock || G.money < c.price)) ? 'disabled' : ''}>${iconImg('car', id)}<b>${c.name}</b><small>${c.desc}</small><small>${label}</small></button>`;
+  }
+  h += `</div><div class="row">${G.car.cur ? '<button class="ghost" data-act="carnone">Stellplatz frei machen</button>' : ''}<button class="ghost" data-act="close">Fertig</button></div>`;
+  openModal(h, 'cars');
+}
+// ---------- Wanderhändler ----------
+function openTrader() {
+  const id = traderOffer(), d = DECO[id];
+  openModal(`<h2>🧺 Wanderhändler</h2><p>„Heute habe ich etwas ganz Besonderes für dich!“</p><div class="decoprev">${decoImg(id)}</div>
+    <p><b>${d.name}</b><br><small>Gibt es nur bei mir – morgen habe ich etwas anderes.</small></p>
+    <div class="row"><button class="ghost" data-act="close">Nein danke</button><button class="gold" data-act="trader" ${G.trader.sold || G.money < d.price ? 'disabled' : ''}>${G.trader.sold ? 'Ausverkauft – morgen wieder' : 'Kaufen 💰 ' + fmt(d.price)}</button></div>`, 'trader');
+}
+// ---------- Bergwerk ----------
+const mine = { hits: 0 };
+function openMinePanel() {
+  if (!G.mine.open) {
+    openModal(`<h2>⛏️ Altes Bergwerk</h2><p>Der Stollen ist verschüttet. Räume ihn frei, dann kannst du Steine, Kohle, Eisenerz und mit Glück Edelsteine abbauen.</p>
+      <p class="small">Steine und Eisenerz brauchst du fürs Landhaus, Edelsteine für Engels- und Drachenstatue.</p>
+      <div class="row"><button class="ghost" data-act="close">Später</button><button class="gold" data-act="mineopen" ${G.money < MINE.cost ? 'disabled' : ''}>Freiräumen 💰 ${fmt(MINE.cost)}</button></div>`, 'mineintro');
+    return;
+  }
+  mine.hits = 0;
+  openModal(`<h2>⛏️ Bergwerk</h2><div class="minescene" data-act="minehit"><span class="rock" id="minerock">🪨</span><span class="catch" id="minecatch"></span></div>
+    <p id="minemsg">Hau ${MINE.hits}× auf das Gestein – dann bricht es auf!</p><p class="small" id="mineinfo"></p>
+    <div class="row"><button data-act="minehit">⛏️ Hacken!</button><button class="ghost" data-act="close">Fertig</button></div>`, 'mine');
+  mineInfo();
+}
+function mineInfo() {
+  const el = document.getElementById('mineinfo'); if (!el) return;
+  const m = G.mine, next = m.finds < MINE.max ? ` · nächster Fund in ${Math.ceil(MINE.regen - m.t)}s` : '';
+  el.textContent = `🪨 Gestein im Stollen: ${m.finds} / ${MINE.max}${next}`;
+}
+function mineHit() {
+  const msg = document.getElementById('minemsg'), rock = document.getElementById('minerock'), cat = document.getElementById('minecatch');
+  if (!msg) return;
+  if (G.mine.finds <= 0) { msg.textContent = 'Gerade nichts mehr zu holen – gleich bricht neues Gestein nach.'; sfx('bad'); return; }
+  mine.hits++; sfx('plow'); cat.textContent = '';
+  rock.style.transform = `scale(${1 - mine.hits * 0.08}) rotate(${(mine.hits % 2 ? -6 : 6)}deg)`;
+  if (mine.hits < MINE.hits) { msg.textContent = 'Noch ' + (MINE.hits - mine.hits) + '×!'; return; }
+  mine.hits = 0; rock.style.transform = '';
+  const f = mineFind(); if (!f) return;
+  cat.textContent = ITEMS[f].icon;
+  msg.innerHTML = `Gefunden: <b>${ITEMS[f].icon} ${ITEMS[f].name}</b>! Liegt in der Scheune.`;
+  sfx(f === 'edelstein' ? 'lucky' : 'harvest'); if (f === 'edelstein') confetti();
+  mineInfo();
 }

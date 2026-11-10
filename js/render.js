@@ -6,16 +6,15 @@ const S = { tool: 'weizen', placing: null, hover: null };
 const view = { scale: 1, ox: 0, oy: 0, dpr: 1 };
 let canvas, ctx;
 
-const WORLD_TW = MAP_W + TOWN_W;                 // Kacheln in der Breite: Hof + Stadt
+const WORLD_TW = MAP_W + (TOWN_ON ? TOWN_W : 0); // Kacheln in der Breite: Hof (+ Stadt, wenn eingeschaltet)
 const WORLD_W = WORLD_TW * TILE, WORLD_H = MAP_H * TILE;
 const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
-const isPath = (x, y) => (x === 3 && y >= 1 && y <= 14) || (y === 14 && x >= 0 && x < WORLD_TW);
-const isCobble = (x, y) => { const t = x - TOWN_X0; return t >= 4 && t <= 5 && y >= 1 && y <= 13; };
 
 function initRender() {
   canvas = document.getElementById('game');
   ctx = canvas.getContext('2d');
   buildGround();
+  SCN.onReady(buildGround);
   window.addEventListener('resize', resize);
   if (window.ResizeObserver) {
     const ro = new ResizeObserver(resize);
@@ -57,16 +56,16 @@ const availCenter = () => ({ x: stage.l + availW() / 2, y: stage.t + availH() / 
 const minZoom = () => Math.min(availW() / WORLD_W, availH() / WORLD_H);
 const maxZoom = () => Math.max(minZoom(), 1.5);
 
-// Auf dem Handy auf das eigene Land zoomen, am Computer den ganzen Hof zeigen
+// Kamera zeigt Hofplatz + eigenes Land (+ etwas Rand, damit man die Nachbar-Schilder sieht)
 function autoView() {
-  if (!isCompact()) return { x: MAP_W * TILE / 2, y: WORLD_H / 2, z: Math.min(availW() / (MAP_W * TILE), availH() / WORLD_H) };
-  let x0 = 99, y0 = 99, x1 = 0, y1 = 0;
+  let x0 = 2, y0 = 2.6, x1 = 15, y1 = 14.2; // Hofplatz, Haus, Hofladen
   G.parcels.forEach((own, i) => {
     if (!own) return;
-    const px = PARCEL_X0 + (i % PARCEL_COLS) * PARCEL, py = PARCEL_Y0 + Math.floor(i / PARCEL_COLS) * PARCEL;
-    x0 = Math.min(x0, px); y0 = Math.min(y0, py); x1 = Math.max(x1, px + PARCEL); y1 = Math.max(y1, py + PARCEL);
+    const p = PARCELS[i];
+    x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + p.w); y1 = Math.max(y1, p.y + p.h);
   });
-  x0 -= 1; y0 -= 1; x1 += 1; y1 += 1; // etwas Rand, damit man die Nachbar-Schilder sieht
+  const m = isCompact() ? 0.6 : 1.4;
+  x0 -= m; y0 -= m * 0.6; x1 += m + 1; y1 += m;
   return { x: (x0 + x1) / 2 * TILE, y: (y0 + y1) / 2 * TILE, z: Math.min(availW() / ((x1 - x0) * TILE), availH() / ((y1 - y0) * TILE)) };
 }
 function autoCam() { const v = autoView(); cam.x = v.x; cam.y = v.y; cam.z = v.z; }
@@ -92,8 +91,9 @@ function updateCam(dt) {
   applyCam();
 }
 function focusTown() {
-  flyTo({ x: (TOWN_X0 + TOWN_W / 2) * TILE, y: WORLD_H / 2, z: Math.min(availW() / (TOWN_W * TILE), availH() / (14 * TILE)) }, false);
+  flyTo({ x: (TOWN_X0 + TOWN_W / 2) * TILE, y: (TOWN_Y0 + 7.5) * TILE, z: Math.min(availW() / (TOWN_W * TILE), availH() / (15 * TILE)) }, false);
 }
+function focusAt(tx, ty, tiles = 9) { flyTo({ x: tx * TILE, y: ty * TILE, z: Math.min(availW(), availH()) / (tiles * TILE) }, false); }
 
 // Zoomen um einen Bildschirmpunkt (sx, sy), der dabei an derselben Stelle der Welt bleibt
 function zoomAt(factor, sx, sy) {
@@ -167,341 +167,230 @@ function draw(time) {
   const T = time / 1000;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = '#3f7a35'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!groundCv) return; // Grafiken laden noch
   const s = view.scale * view.dpr;
   ctx.setTransform(s, 0, 0, s, view.ox * view.dpr, view.oy * view.dpr);
   const vr = visibleRect();
-
   // Pixel-Grafik: scharfe Pixel, nur beim starken Verkleinern weich (sonst flimmert es)
-  ctx.imageSmoothingEnabled = !atlasReady || s < 2;
+  ctx.imageSmoothingEnabled = s < 0.9;
   ctx.drawImage(groundCv, 0, 0, WORLD_W, WORLD_H);
-  ctx.imageSmoothingEnabled = !atlasReady || s < 0.9;
-  if (atlasReady) drawTrees(vr, 0);
-  if (vr.x0 < 3 * TILE) drawDecor(T);
   drawParcels();
+  drawPaths();
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) drawCrop(x, y, T);
-  if (atlasReady) for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) drawCropMark(x, y, T); // Sichtbarkeit: wächst / reif
-  if (vr.x1 > TOWN_X0 * TILE) drawTown(T);
-  const bs = Object.values(G.buildings).sort((a, b) => a.y - b.y);
-  for (const b of bs) drawBuilding(b, T);
-  for (const b of bs) drawBubble(b, T);
-  drawTrees(vr, atlasReady ? 15 : null);
+  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) drawCropMark(x, y, T); // wächst: Symbol + Balken
+  if (TOWN_ON && vr.x1 > TOWN_X0 * TILE) { ctx.save(); ctx.translate(0, TOWN_Y0 * TILE); drawTown(T); ctx.restore(); }
+  // alles, was steht, nach Fußpunkt sortiert: Gebäude, Deko, Haus, Tiere …
+  const list = [];
+  for (const b of Object.values(G.buildings)) list.push([(b.y + BUILDINGS[b.type].h) * TILE, () => drawBuilding(b, T)]);
+  for (const d of Object.values(G.deco)) if (decoKind(d.t) !== 'path') list.push([(d.y + decoH(d.t)) * TILE - (decoKind(d.t) === 'fence' ? 2 : 0), () => drawDeco(d, T)]);
+  farmObjects(list, T);
+  list.sort((a, b) => a[0] - b[0]).forEach((e) => e[1]());
+  for (const b of Object.values(G.buildings)) drawBubble(b, T);
+  drawDecoLights(T);
+  drawPlaques(T);
+  drawFarmBubbles(T);
   drawAmbient(T);
   drawHover(T);
   drawPointer(T);
+  drawTapInfo(T);
   drawFX(ctx);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = vignette; ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
-// ---------- Boden: einmal vorzeichnen, danach nur noch kopieren ----------
+// ---------- Boden + Landschaft: einmal vorzeichnen, danach nur noch kopieren ----------
 let groundCv = null;
 function buildGround() {
-  const GS = 2;
-  groundCv = document.createElement('canvas');
-  groundCv.width = WORLD_W * GS; groundCv.height = WORLD_H * GS;
-  const g = groundCv.getContext('2d');
-  g.scale(GS, GS);
-  if (atlasReady) { buildGroundPixel(g); return; }
-  g.fillStyle = '#69bb4d'; g.fillRect(0, 0, WORLD_W, WORLD_H);
-  // weiche helle/dunkle Flecken, damit die Wiese lebendig wirkt
-  for (let i = 0; i < 1100; i++) {
-    const x = hash(i, 1) * WORLD_W, y = hash(i, 2) * WORLD_H, r = 8 + hash(i, 3) * 30;
-    g.fillStyle = hash(i, 4) > 0.5 ? 'rgba(150,210,95,0.16)' : 'rgba(55,135,45,0.14)';
-    g.beginPath(); g.ellipse(x, y, r, r * 0.65, hash(i, 5) * 3, 0, 7); g.fill();
-  }
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) {
-    if (isPath(x, y) || isCobble(x, y)) continue;
-    const px = x * TILE, py = y * TILE;
-    for (let k = 0; k < 3; k++) { // Grasbüschel
-      const h = hash(x * 3 + k, y * 5 + 1); if (h < 0.35) continue;
-      const gx = px + 6 + hash(x + k, y * 7) * 36, gy = py + 10 + hash(y + k, x * 11) * 34;
-      g.strokeStyle = h > 0.7 ? '#4c9638' : '#58a842'; g.lineWidth = 1.6; g.lineCap = 'round'; g.beginPath();
-      g.moveTo(gx - 3, gy); g.lineTo(gx - 5, gy - 6); g.moveTo(gx, gy); g.lineTo(gx, gy - 8); g.moveTo(gx + 3, gy); g.lineTo(gx + 5, gy - 6);
-      g.stroke();
-    }
-    const f = hash(x, y + 9);
-    if (f > 0.9) { // Blümchen
-      const c = ['#fff6a8', '#ffb3c7', '#ffffff', '#c9b6ff'][Math.floor(hash(y, x + 3) * 4)];
-      const fx = px + 10 + hash(x, y * 2) * 28, fy = py + 10 + hash(y, x * 2) * 28;
-      g.fillStyle = c; for (let a = 0; a < 5; a++) { g.beginPath(); g.arc(fx + Math.cos(a * 1.26) * 2.6, fy + Math.sin(a * 1.26) * 2.6, 2, 0, 7); g.fill(); }
-      g.fillStyle = '#f4b400'; g.beginPath(); g.arc(fx, fy, 1.5, 0, 7); g.fill();
-    } else if (f < 0.04) { g.fillStyle = '#9aa39a'; g.beginPath(); g.ellipse(px + 24, py + 28, 4, 3, 0, 0, 7); g.fill(); }
-  }
-  // Feldwege (Erde) mit weichem Grasrand
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) {
-    if (!isPath(x, y)) continue;
-    const px = x * TILE, py = y * TILE;
-    g.fillStyle = '#dcbc80'; g.fillRect(px, py, TILE, TILE);
-    g.fillStyle = 'rgba(160,120,60,0.35)';
-    for (let i = 0; i < 5; i++) { g.beginPath(); g.ellipse(px + hash(x + i, y * 3) * 44 + 2, py + hash(x * 7, y + i) * 44 + 2, 2.4, 1.6, 0, 0, 7); g.fill(); }
-    if (y === 14) { g.fillStyle = 'rgba(150,110,55,0.22)'; g.fillRect(px, py + 14, TILE, 4); g.fillRect(px, py + 30, TILE, 4); } // Fahrspuren
-  }
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) {
-    if (!isPath(x, y)) continue;
-    const px = x * TILE, py = y * TILE;
-    const side = [[0, -1, px, py, 1, 0], [0, 1, px, py + TILE, 1, 0], [-1, 0, px, py, 0, 1], [1, 0, px + TILE, py, 0, 1]];
-    for (const [dx, dy, sx, sy, ax, ay] of side) {
-      const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= WORLD_TW || ny >= MAP_H || isPath(nx, ny) || isCobble(nx, ny)) continue;
-      g.fillStyle = '#69bb4d';
-      for (let k = 0; k < 5; k++) { g.beginPath(); g.arc(sx + ax * (k * 12 + hash(x * 9 + k, y) * 6), sy + ay * (k * 12 + hash(x, y * 9 + k) * 6), 3 + hash(k, x + y) * 3, 0, 7); g.fill(); }
-    }
-  }
-  // Kopfsteinpflaster in der Stadt
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) {
-    if (!isCobble(x, y)) continue;
-    const px = x * TILE, py = y * TILE;
-    g.fillStyle = '#a79f90'; g.fillRect(px, py, TILE, TILE);
-    for (let r = 0; r < 4; r++) for (let c = -1; c < 4; c++) {
-      const sx = px + c * 14 + (r % 2) * 7 + 1, sy = py + r * 12 + 1;
-      g.fillStyle = ['#cfc7b8', '#c2baaa', '#d8d0c2', '#bdb4a3'][Math.floor(hash(x * 13 + c, y * 7 + r) * 4)];
-      g.save(); g.beginPath(); g.rect(px, py, TILE, TILE); g.clip();
-      g.beginPath(); g.roundRect(sx, sy, 12, 10, 3); g.fill(); g.restore();
-    }
-  }
+  if (!atlasReady || !SCN.ready) return;
+  const cv = document.createElement('canvas');
+  cv.width = WORLD_W; cv.height = WORLD_H;
+  const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
+  SCN.buildScene(g);
+  groundCv = cv;
 }
 
-// Pixel-Boden: Wiese mit Grasbüscheln, Feldwege, Pflaster in der Stadt
-function buildGroundPixel(g) {
-  g.imageSmoothingEnabled = false;
-  g.fillStyle = PX.grass; g.fillRect(0, 0, WORLD_W, WORLD_H);
-  for (let i = 0; i < 700; i++) { // ganz leichte helle/dunkle Flecken
-    const x = Math.round(hash(i, 1) * WORLD_W), y = Math.round(hash(i, 2) * WORLD_H), r = 10 + hash(i, 3) * 26;
-    g.fillStyle = hash(i, 4) > 0.5 ? 'rgba(150,195,95,0.10)' : 'rgba(70,120,50,0.10)';
-    g.beginPath(); g.ellipse(x, y, r, r * 0.6, 0, 0, 7); g.fill();
+// ---------- Hof: Haus, Scheune, Hofladen, Hund, Katze, Auto, Händler, Tiere am See ----------
+const HOUSE_FOOT = { x: 6.6, y: 6.25 };
+function farmObjects(list, T) {
+  const add = (y, fn) => list.push([y, fn]);
+  // Wohnhaus (Haus-Ausbau): zur Mitte ausgerichtet
+  const hc = SCN.houseCanvas(G.house), hx = Math.round(HOUSE_FOOT.x * TILE - hc.width / 2), hy = Math.round(HOUSE_FOOT.y * TILE - hc.height + 2);
+  add(HOUSE_FOOT.y * TILE, () => ctx.drawImage(hc, hx, hy));
+  add(6.15 * TILE, () => { spr(ctx, 'scheune', 0, 11.3 * TILE, 6.15 * TILE); const total = Object.values(G.inv).reduce((s2, n) => s2 + n, 0); if (total) badge(12.2 * TILE, 4.7 * TILE, total); });
+  // Hundehütte + Hofhund (läuft vor dem Haus hin und her, legt sich ab und zu vor die Hütte)
+  add(9.0 * TILE, () => SCN.dogHouse(ctx, 4.75 * TILE, 9.0 * TILE));
+  { const q = Math.sin(T * 0.3), still = Math.abs(Math.cos(T * 0.3)) < 0.3, dx = 5.9 * TILE + (q + 1) * 1.9 * TILE, dy = 9.3 * TILE + Math.sin(T * 0.17) * 10;
+    add(dy, () => spr(ctx, 'hund_lauf', still ? 0 : Math.floor(T * 10), Math.round(dx), Math.round(dy), Math.cos(T * 0.3) < 0)); }
+  // Kratzbaum + Hofkatze
+  if (G.pets.katze) {
+    add(6.5 * TILE, () => SCN.catTree(ctx, 13.55 * TILE, 6.5 * TILE));
+    const c = catPos(T); add(c.y, () => (c.sit ? SCN.danim(ctx, 'katze_sitz', Math.floor(T * 4), c.x, c.y) : SCN.danim(ctx, c.dir > 0 ? 'katze_r' : 'katze_l', Math.floor(T * 9), c.x, c.y)));
   }
-  const flowers = ['#f4efd8', '#f2b6c6', '#f6d76b', '#c7b8f0'];
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) {
-    if (isPath(x, y) || isCobble(x, y)) continue;
-    const px = x * TILE, py = y * TILE;
-    for (let k = 0; k < 2; k++) {
-      const h = hash(x * 3 + k, y * 5 + 1); if (h < 0.45) continue;
-      spr(g, 'tuft', Math.floor(h * 60), px + 8 + Math.round(hash(x + k, y * 7) * 32), py + 14 + Math.round(hash(y + k, x * 11) * 32));
-    }
-    const f = hash(x, y + 9);
-    if (f > 0.9) { // Pixel-Blümchen
-      const fx = px + 8 + Math.round(hash(x, y * 2) * 30), fy = py + 8 + Math.round(hash(y, x * 2) * 30);
-      g.fillStyle = flowers[Math.floor(hash(y, x + 3) * 4)];
-      g.fillRect(fx - 2, fy, 2, 2); g.fillRect(fx + 2, fy, 2, 2); g.fillRect(fx, fy - 2, 2, 2); g.fillRect(fx, fy + 2, 2, 2);
-      g.fillStyle = '#e8a33a'; g.fillRect(fx, fy, 2, 2);
-    } else if (f < 0.03) spr(g, 'spot', Math.floor(hash(y, x) * 4), px + 24, py + 40);
+  // Hofladen + Auftragstafel an der Straße
+  add(12.95 * TILE, () => spr(ctx, 'marktstand', 0, 11.6 * TILE, 12.95 * TILE));
+  add(12.95 * TILE, () => drawBoard(13.55 * TILE, 12.95 * TILE, T));
+  // Auto auf dem Stellplatz
+  if (G.car.cur) { const vc = SCN.vehicleCanvas(G.car.cur); add(12.9 * TILE, () => ctx.drawImage(vc, Math.round(6 * TILE - vc.width / 2), Math.round(12.9 * TILE - vc.height))); }
+  // Wanderhändler mit Karren
+  add(14.85 * TILE, () => { spr(ctx, 'karren', 0, 12.4 * TILE, 14.95 * TILE); spr(ctx, 'haendler', Math.floor(T * 6), 10.9 * TILE, 14.85 * TILE); });
+  // Krähen um die erste Vogelscheuche
+  const sc = Object.values(G.deco).find((d) => d.t === 'vogelscheuche');
+  if (sc) for (let i = 0; i < 3; i++) {
+    const a = T * (0.18 + i * 0.05) + i * 2.1, cx = (sc.x + 0.5) * TILE + Math.cos(a) * (22 + i * 8), cy = (sc.y + 1) * TILE + 6 + Math.sin(a) * 9;
+    add(cy, () => SCN.danim(ctx, 'kraehe', Math.floor(T * 7 + i * 3), Math.round(cx), Math.round(cy), Math.cos(a + 1.6) > 0));
   }
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) { // Feldwege
-    if (!isPath(x, y)) continue;
-    const px = x * TILE, py = y * TILE;
-    g.fillStyle = PX.dirt; g.fillRect(px, py, TILE, TILE);
-    g.fillStyle = 'rgba(120,80,45,0.45)';
-    for (let i = 0; i < 6; i++) g.fillRect(px + Math.round(hash(x + i, y * 3) * 44), py + Math.round(hash(x * 7, y + i) * 44), 2 + (i % 2) * 2, 2);
-    g.fillStyle = 'rgba(235,190,120,0.35)';
-    for (let i = 0; i < 4; i++) g.fillRect(px + Math.round(hash(x + i, y * 5) * 44), py + Math.round(hash(x * 5, y + i) * 44), 2, 2);
-    if (y === 14) { g.fillStyle = 'rgba(120,80,45,0.28)'; g.fillRect(px, py + 14, TILE, 4); g.fillRect(px, py + 30, TILE, 4); }
-  }
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) { // Grasrand am Weg
-    if (!isPath(x, y)) continue;
-    const px = x * TILE, py = y * TILE;
-    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
-      const nx = x + dx, ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= WORLD_TW || ny >= MAP_H || isPath(nx, ny) || isCobble(nx, ny)) continue;
-      g.fillStyle = PX.grass;
-      for (let k = 0; k < 8; k++) {
-        const t = k * 6 + Math.round(hash(x * 9 + k, y + dx) * 3), d = 2 + Math.round(hash(k, x + y * 3 + dy) * 3);
-        if (dy) g.fillRect(px + t, dy < 0 ? py : py + TILE - d, 6, d); else g.fillRect(dx < 0 ? px : px + TILE - d, py + t, d, 6);
-      }
-    }
-  }
-  for (let y = 0; y < MAP_H; y++) for (let x = 0; x < WORLD_TW; x++) { // Pflaster in den Steinfarben von Paket A
-    if (!isCobble(x, y)) continue;
-    const px = x * TILE, py = y * TILE;
-    if (SPR.pflaster) { const p = SPR.pflaster[0]; g.drawImage(ATL, p[0] + (x % 2) * 48, p[1] + (y % 2) * 48, 48, 48, px, py, TILE, TILE); continue; }
-    g.fillStyle = '#5b5560'; g.fillRect(px, py, TILE, TILE);
-    for (let r = 0; r < 4; r++) for (let c = -1; c < 4; c++) {
-      const sx = px + c * 14 + (r % 2) * 7 + 1, sy = py + r * 12 + 1, v = hash(x * 13 + c, y * 7 + r);
-      const x0 = Math.max(px, sx), x1 = Math.min(px + TILE, sx + 12);
-      if (x1 - x0 < 2) continue;
-      g.fillStyle = v < 0.5 ? '#8697ba' : v < 0.8 ? '#7d8bab' : '#8fa3c4'; g.fillRect(x0, sy, x1 - x0, 10);
-      g.fillStyle = 'rgba(200,220,245,0.45)'; g.fillRect(x0, sy, x1 - x0, 2);
-      g.fillStyle = 'rgba(40,40,60,0.35)'; g.fillRect(x0, sy + 8, x1 - x0, 2);
-    }
+  // Enten auf dem See, mit Küken dahinter
+  const duck = (u) => { const a = u; return { x: (6.4 + Math.cos(a) * 3.8) * TILE, y: (22.6 + Math.sin(a) * 1.6) * TILE, dir: -Math.sin(a) }; };
+  const u0 = T * 0.05; const m = duck(u0);
+  add(m.y, () => spr(ctx, 'ente_schwimm', Math.floor(T * 6), Math.round(m.x), Math.round(m.y), m.dir > 0));
+  if (G.pets.kueken) for (let i = 1; i <= 3; i++) { const k = duck(u0 - i * 0.09); add(k.y, () => SCN.danim(ctx, 'kueken_r', Math.floor(T * 8 + i), Math.round(k.x), Math.round(k.y + 2), k.dir > 0)); }
+  const m2 = duck(u0 * 0.7 + 3); add(m2.y, () => spr(ctx, 'ente_schwimm', Math.floor(T * 6) + 2, Math.round(m2.x), Math.round(m2.y), m2.dir > 0));
+  // Esel grast auf der Uferwiese
+  if (G.pets.esel) {
+    const q = (T * 0.012) % 2, back = q > 1, u = back ? 2 - q : q, ex = (15.5 + u * 20) * TILE, ey = 22.3 * TILE, still = Math.sin(T * 0.4) > 0.6;
+    add(ey, () => SCN.danim(ctx, back ? 'esel_l' : 'esel_r', still ? 0 : Math.floor(T * 7), Math.round(ex), Math.round(ey)));
   }
 }
-
-function drawTrees(vr, onlyRow) {
-  if (atlasReady) { // Waldrand oben und unten: Pixel-Bäume und Büsche
-    for (let x = 0; x < WORLD_TW; x++) {
-      const y = onlyRow, h = hash(x, y + 50), px = x * TILE + 24 + Math.round((h - 0.5) * 14);
-      if (px < vr.x0 - 60 || px > vr.x1 + 60) continue;
-      const by = y * TILE + (y === 0 ? 40 : 46);
-      if (h > 0.45) spr(ctx, 'wald', Math.floor(hash(x, y + 51) * 4), px, by, hash(x, y + 52) > 0.5);
-      else spr(ctx, 'busch', Math.floor(hash(x, y + 51) * 6), px, by - 4, hash(x, y + 52) > 0.5);
-    }
-    return;
+// Hofkatze: sitzt eine Weile auf dem Kratzbaum, dann streift sie über den Hofplatz
+const CAT_PATH = [[13.2, 7.3], [11.2, 8.4], [8.6, 9.6], [6.4, 10.4], [8.2, 8.2], [10.6, 7.4], [12.6, 7.0]];
+function catPos(T) {
+  const cyc = T % 60;
+  if (cyc < 18) return { x: 13.55 * TILE + 11, y: 6.5 * TILE - 57, sit: true };
+  const u = (cyc - 18) / 42 * CAT_PATH.length, i = Math.floor(u), f = u - i;
+  const a = CAT_PATH[i % CAT_PATH.length], b = CAT_PATH[(i + 1) % CAT_PATH.length];
+  return { x: (a[0] + (b[0] - a[0]) * f) * TILE, y: (a[1] + (b[1] - a[1]) * f) * TILE, dir: b[0] > a[0] ? 1 : -1 };
+}
+// Auftragstafel mit einem Zettel pro Auftrag
+function drawBoard(bx, by, T) {
+  spr(ctx, 'tafel', 0, bx, by);
+  for (let i = 0; i < Math.min(4, G.orders.length); i++) {
+    const o = G.orders[i], ready = o && o.wait === undefined && hasAll(o.items);
+    const nx = bx - 15 + (i % 2) * 15, ny = by - 40 + Math.floor(i / 2) * 15;
+    ctx.fillStyle = 'rgba(40,25,10,0.45)'; ctx.fillRect(nx + 1, ny + 1, 12, 13);
+    ctx.fillStyle = o && o.wait === undefined ? (ready ? '#cdf29b' : '#f6ecd0') : 'rgba(246,236,208,0.35)'; ctx.fillRect(nx, ny, 12, 13);
+    if (o && o.wait === undefined) { ctx.fillStyle = 'rgba(70,50,30,0.55)'; for (let k = 0; k < 3; k++) ctx.fillRect(nx + 2, ny + 3 + k * 3, 8 - (k === 2 ? 3 : 0), 1); }
+    ctx.fillStyle = '#c0392b'; ctx.fillRect(nx + 5, ny - 1, 2, 2);
   }
-  for (let x = 0; x < WORLD_TW; x++) for (const y of [0, 15]) {
-    const h = hash(x, y + 50), px = x * TILE + 24 + (h - 0.5) * 14, py = y * TILE + (y === 0 ? 30 : 34);
-    if (px < vr.x0 - 40 || px > vr.x1 + 40) continue;
-    const r = 17 + hash(x, y + 51) * 6;
-    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(px + 4, py + 10, r + 2, 7, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = '#6b4423'; ctx.fillRect(px - 4, py - 4, 8, 14);
-    if (h > 0.78) { // Tanne
-      for (let k = 0; k < 3; k++) {
-        ctx.fillStyle = ['#2c6a35', '#327a3c', '#3b8a45'][k];
-        ctx.beginPath(); ctx.moveTo(px - r + k * 4, py - k * 11); ctx.lineTo(px, py - 30 - k * 9); ctx.lineTo(px + r - k * 4, py - k * 11); ctx.fill();
-      }
-      continue;
-    }
-    ctx.fillStyle = '#2f7d32'; ctx.beginPath(); ctx.arc(px, py - 14, r, 0, 7); ctx.fill();
-    ctx.fillStyle = '#3a9139'; ctx.beginPath(); ctx.arc(px - 4, py - 18, r * 0.72, 0, 7); ctx.fill();
-    ctx.fillStyle = 'rgba(160,230,120,0.45)'; ctx.beginPath(); ctx.arc(px - 7, py - 23, r * 0.35, 0, 7); ctx.fill();
-  }
+  const n = G.orders.filter((o) => o.wait === undefined && hasAll(o.items)).length;
+  if (n) badge(bx + 18, by - 46 + Math.sin(T * 5) * 3, n);
+}
+// Holzschilder mit Namen (Bergwerk steht schon in der Landschaft)
+function drawPlaques() {
+  const hc = SCN.houseCanvas(G.house);
+  SCN.plaque(ctx, 'Wohnhaus', HOUSE_FOOT.x * TILE, HOUSE_FOOT.y * TILE - hc.height - 12);
+  SCN.plaque(ctx, 'Scheune', 11.3 * TILE, 4.18 * TILE);
+  SCN.plaque(ctx, 'Hofladen', 11.6 * TILE, 10.75 * TILE);
+}
+// Blasen an See, Boot, Bergwerk und Händler
+function drawFarmBubbles(T) {
+  const st = farmObj('steg'), bo = farmObj('boot'), mi = farmObj('bergwerk');
+  if (G.level >= POND.level && G.pond.fish > 0) bubbleIcon(8.2 * TILE, 17.6 * TILE + Math.sin(T * 3) * 2, '🎣', 13, '#3b8fcf', G.pond.fish);
+  if (G.level >= BOAT.level && G.boat.fish > 0) bubbleIcon(8.3 * TILE, 21.3 * TILE + Math.sin(T * 3 + 1) * 2, '🚣', 13, '#3b8fcf', G.boat.fish);
+  if (G.mine.open && G.mine.finds > 0) bubbleIcon(37.6 * TILE, 3.4 * TILE + Math.sin(T * 3 + 2) * 2, '⛏️', 13, '#8a6a22', G.mine.finds);
+  if (!G.trader.sold) bubbleIcon(10.9 * TILE, 13.55 * TILE + Math.sin(T * 2.5) * 2, '✨', 11, '#9b4dca');
+  void st; void bo; void mi;
+}
+// kurzer Hinweis beim Antippen (z. B. „ab Level 16“), verschwindet nach 3 Sekunden
+function drawTapInfo() {
+  const t = S.tapInfo; if (!t) return;
+  const left = t.until - performance.now(); if (left <= 0) { S.tapInfo = null; return; }
+  const k = uiK(), a = Math.min(1, left / 300);
+  ctx.font = '800 13px Nunito, system-ui, sans-serif';
+  const w1 = ctx.measureText(t.title).width, w2 = ctx.measureText(t.text).width, w = Math.max(w1, w2) + 46, h = 40;
+  // im sichtbaren, freien Bereich halten (nicht hinter Seitenleiste oder Werkzeugen)
+  const a0 = screenToWorld(stage.l, stage.t), a1 = screenToWorld(stage.w - stage.r - 8, stage.h - stage.b);
+  const px = Math.min(Math.max(t.x, a0.x + (w / 2 + 6) * k), a1.x - (w / 2 + 6) * k), py = Math.max(t.y, a0.y + (h + 16) * k);
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(px, py); ctx.scale(k, k);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(0,0,0,.3)'; rr(-w / 2 + 2, -h - 12 + 3, w, h, 9); ctx.fill();
+  ctx.fillStyle = '#5d3a1a'; rr(-w / 2, -h - 12, w, h, 9); ctx.fill();
+  ctx.fillStyle = '#fff8e7'; rr(-w / 2 + 3, -h - 9, w - 6, h - 6, 7); ctx.fill();
+  const lx = -w / 2 + 10, ly = -h - 2; // Schloss
+  ctx.strokeStyle = '#5d5d5d'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(lx + 8, ly + 6, 5, Math.PI, 0); ctx.stroke();
+  ctx.fillStyle = '#c9962c'; ctx.fillRect(lx + 1, ly + 6, 14, 12); ctx.fillStyle = '#5a4210'; ctx.fillRect(lx + 7, ly + 9, 2, 6);
+  ctx.fillStyle = '#3b2412'; ctx.fillText(t.title, lx + 22, ly + 4); ctx.fillStyle = '#7a5a36'; ctx.font = '700 12px Nunito, system-ui, sans-serif'; ctx.fillText(t.text, lx + 22, ly + 18);
+  ctx.restore();
 }
 
-function drawDecor(T) {
-  for (const d of DECOR) {
-    const x = d.x * TILE, y = d.y * TILE, w = d.w * TILE, h = d.h * TILE;
-    if (atlasReady && drawDecorPixel(d, x, y, w, h, T)) {
-      outlinedText(ctx, d.id === 'teich' && G.level >= POND.level ? 'Teich – Angeln' : d.name, x + w / 2, y + h - 2, 11, '#fff');
-      continue;
-    }
-    if (d.id !== 'teich') { ctx.fillStyle = 'rgba(0,0,0,0.18)'; rr(x + 8, y + 12, w - 10, h - 10, 8); ctx.fill(); }
-    if (d.id === 'haus') {
-      // Fachwerkhaus
-      ctx.fillStyle = '#f6e7c8'; rr(x + 12, y + 56, w - 24, h - 62, 3); ctx.fill();
-      ctx.strokeStyle = '#6b4423'; ctx.lineWidth = 4;
-      ctx.strokeRect(x + 12, y + 56, w - 24, h - 62);
-      ctx.beginPath(); ctx.moveTo(x + 12, y + 96); ctx.lineTo(x + w - 12, y + 96); ctx.moveTo(x + w / 2, y + 56); ctx.lineTo(x + w / 2, y + 96);
-      ctx.moveTo(x + 12, y + 56); ctx.lineTo(x + 36, y + 96); ctx.moveTo(x + w - 12, y + 56); ctx.lineTo(x + w - 36, y + 96); ctx.stroke();
-      // Dach mit Ziegelreihen
-      ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.moveTo(x + 2, y + 62); ctx.lineTo(x + w / 2, y + 8); ctx.lineTo(x + w - 2, y + 62); ctx.fill();
-      ctx.save(); ctx.clip(); ctx.strokeStyle = 'rgba(120,20,15,0.45)'; ctx.lineWidth = 2;
-      for (let k = 0; k < 6; k++) { ctx.beginPath(); ctx.moveTo(x, y + 18 + k * 9); ctx.lineTo(x + w, y + 18 + k * 9); ctx.stroke(); }
-      ctx.restore();
-      ctx.fillStyle = '#e8574a'; ctx.beginPath(); ctx.moveTo(x + w / 2, y + 8); ctx.lineTo(x + w / 2 + 6, y + 14); ctx.lineTo(x + w / 2 - 6, y + 14); ctx.fill();
-      ctx.fillStyle = '#7d2a20'; ctx.fillRect(x + w - 42, y + 16, 12, 22);
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      for (let k = 0; k < 3; k++) { const q = (T * 0.4 + k / 3) % 1; ctx.beginPath(); ctx.arc(x + w - 36 + q * 10, y + 12 - q * 26, 3 + q * 5, 0, 7); ctx.fill(); }
-      for (const wx of [x + 22, x + w - 44]) { // Fenster mit Blumenkasten
-        ctx.fillStyle = '#fff'; ctx.fillRect(wx - 2, y + 66, 26, 24);
-        ctx.fillStyle = '#9fd8ff'; ctx.fillRect(wx, y + 68, 22, 20);
-        ctx.fillStyle = '#fff'; ctx.fillRect(wx + 10, y + 68, 2, 20); ctx.fillRect(wx, y + 77, 22, 2);
-        ctx.fillStyle = '#8b5a2b'; ctx.fillRect(wx - 3, y + 90, 28, 5);
-        for (let k = 0; k < 4; k++) { ctx.fillStyle = k % 2 ? '#ff6b8a' : '#ffd34d'; ctx.beginPath(); ctx.arc(wx + 2 + k * 7, y + 89, 2.6, 0, 7); ctx.fill(); }
-      }
-      ctx.fillStyle = '#7a4e2a'; rr(x + w / 2 - 11, y + h - 40, 22, 34, [10, 10, 2, 2]); ctx.fill();
-      ctx.fillStyle = '#ffd34d'; ctx.beginPath(); ctx.arc(x + w / 2 + 6, y + h - 22, 2, 0, 7); ctx.fill();
-    } else if (d.id === 'tafel') {
-      ctx.fillStyle = '#7a4e2a'; ctx.fillRect(x + 22, y + 58, 8, 34); ctx.fillRect(x + w - 30, y + 58, 8, 34);
-      ctx.fillStyle = '#a8763e'; rr(x + 10, y + 12, w - 20, 58, 6); ctx.fill();
-      ctx.fillStyle = '#8a5f30'; rr(x + 14, y + 16, w - 28, 50, 4); ctx.fill();
-      ctx.fillStyle = '#6d4c41'; ctx.beginPath(); ctx.moveTo(x + 4, y + 16); ctx.lineTo(x + w / 2, y + 2); ctx.lineTo(x + w - 4, y + 16); ctx.fill();
-      for (let i = 0; i < 3; i++) {
-        const o = G.orders[i], ready = o && o.wait === undefined && hasAll(o.items);
-        ctx.fillStyle = o && o.wait === undefined ? (ready ? '#d9ffb0' : '#fff8e0') : 'rgba(255,255,255,0.25)';
-        ctx.save(); ctx.translate(x + 34 + i * 38, y + 42); ctx.rotate((i - 1) * 0.08);
-        ctx.fillRect(-14, -18, 28, 34); ctx.fillStyle = 'rgba(0,0,0,0.25)'; for (let k = 0; k < 3; k++) ctx.fillRect(-9, -8 + k * 7, 18, 2);
-        ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.arc(0, -16, 3, 0, 7); ctx.fill();
-        ctx.restore();
-      }
-      const n = G.orders.filter((o) => o.wait === undefined && hasAll(o.items)).length;
-      if (n) badge(x + w - 12, y + 12 + Math.sin(T * 5) * 3, n);
-    } else if (d.id === 'scheune') {
-      ctx.fillStyle = '#b03a2e'; rr(x + 8, y + 44, w - 16, h - 50, 4); ctx.fill();
-      ctx.strokeStyle = 'rgba(90,20,15,0.35)'; ctx.lineWidth = 2;
-      for (let k = 1; k < 8; k++) { ctx.beginPath(); ctx.moveTo(x + 8 + k * 16, y + 46); ctx.lineTo(x + 8 + k * 16, y + h - 8); ctx.stroke(); }
-      ctx.fillStyle = '#7d2a20'; ctx.beginPath(); ctx.moveTo(x + 2, y + 50); ctx.lineTo(x + 24, y + 12); ctx.lineTo(x + w - 24, y + 12); ctx.lineTo(x + w - 2, y + 50); ctx.fill();
-      ctx.fillStyle = '#9b3a2e'; ctx.fillRect(x + 24, y + 12, w - 48, 6);
-      ctx.fillStyle = '#f5f0e6'; rr(x + w / 2 - 22, y + h - 56, 44, 50, 3); ctx.fill();
-      ctx.strokeStyle = '#b03a2e'; ctx.lineWidth = 4; ctx.beginPath();
-      ctx.moveTo(x + w / 2 - 20, y + h - 54); ctx.lineTo(x + w / 2 + 20, y + h - 8); ctx.moveTo(x + w / 2 + 20, y + h - 54); ctx.lineTo(x + w / 2 - 20, y + h - 8); ctx.stroke();
-      ctx.fillStyle = '#f5f0e6'; ctx.beginPath(); ctx.arc(x + w / 2, y + 30, 9, 0, 7); ctx.fill();
-      ctx.fillStyle = '#e8c45a'; rr(x + w - 30, y + h - 26, 26, 20, 5); ctx.fill(); // Heuballen
-      ctx.strokeStyle = '#c9a23c'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x + w - 26, y + h - 16); ctx.lineTo(x + w - 8, y + h - 16); ctx.stroke();
-      const total = Object.values(G.inv).reduce((s, n) => s + n, 0);
-      if (total) badge(x + w - 10, y + 16, total);
-    } else if (d.id === 'teich') {
-      const cx = x + w / 2, cy = y + h / 2;
-      ctx.fillStyle = '#c8b27e'; ctx.beginPath(); ctx.ellipse(cx, cy + 2, w / 2 - 2, h / 2 - 3, 0, 0, 7); ctx.fill();
-      ctx.fillStyle = '#3b8fcf'; ctx.beginPath(); ctx.ellipse(cx, cy, w / 2 - 7, h / 2 - 9, 0, 0, 7); ctx.fill();
-      ctx.fillStyle = '#5bb2ea'; ctx.beginPath(); ctx.ellipse(cx - 6, cy - 4, w / 2 - 20, h / 2 - 20, 0, 0, 7); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(cx + Math.sin(T) * 10, cy, 14 + (T * 8) % 12, 5, 0, 0, 7); ctx.stroke();
-      ctx.fillStyle = '#3c9a4a'; ctx.beginPath(); ctx.arc(x + 34, y + 36, 8, 0.4, 6); ctx.fill();
-      ctx.fillStyle = '#ffb3c7'; ctx.beginPath(); ctx.arc(x + 36, y + 34, 2.5, 0, 7); ctx.fill();
-      ctx.strokeStyle = '#4c8a2e'; ctx.lineWidth = 2; // Schilf
-      for (let k = 0; k < 4; k++) { const rx = x + 8 + k * 5; ctx.beginPath(); ctx.moveTo(rx, cy + 14); ctx.lineTo(rx + Math.sin(T * 1.5 + k) * 2, cy - 8 - k * 2); ctx.stroke(); }
-      const jump = (T * 0.25) % 1; // ab und zu springt ein Fisch
-      if (G.pond.fish > 0 && jump < 0.12) {
-        const q = jump / 0.12, jx = cx + 18, jy = cy - Math.sin(q * Math.PI) * 18;
-        drawEmoji(ctx, '🐟', jx, jy, 16);
-      }
-      drawEmoji(ctx, '🦆', x + w - 46 + Math.sin(T * 0.5) * 16, cy + 4, 22);
-      if (G.level >= POND.level) { // Steg mit Angel
-        ctx.fillStyle = '#9c6b3c'; ctx.fillRect(x + w - 24, cy - 6, 24, 12);
-        ctx.strokeStyle = '#7a4e2a'; ctx.lineWidth = 1; for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.moveTo(x + w - 24 + k * 6, cy - 6); ctx.lineTo(x + w - 24 + k * 6, cy + 6); ctx.stroke(); }
-        ctx.strokeStyle = '#5d3a1a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + w - 8, cy + 2); ctx.lineTo(x + w - 30, cy - 26); ctx.stroke();
-        ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + w - 30, cy - 26); ctx.lineTo(x + w - 36, cy + 4); ctx.stroke();
-        if (G.pond.fish > 0) bubbleIcon(cx + 10, y - 2 + Math.sin(T * 3) * 2, '🎣', 13, '#3b8fcf', G.pond.fish);
-      }
-    }
-    outlinedText(ctx, d.id === 'teich' && G.level >= POND.level ? 'Teich – Angeln' : d.name, x + w / 2, y + h - 2, 11, '#fff');
+// ---------- Deko ----------
+const pathPats = {};
+function pathPattern(id) {
+  if (pathPats[id]) return pathPats[id];
+  const r = DSPR[DECO[id].spr]; if (!r || !SCN.ready) return null;
+  const c = document.createElement('canvas'); c.width = r[2]; c.height = r[3];
+  c.getContext('2d').drawImage(SCN.DATL, r[0], r[1], r[2], r[3], 0, 0, r[2], r[3]);
+  return (pathPats[id] = ctx.createPattern(c, 'repeat'));
+}
+function drawPaths() {
+  for (const d of Object.values(G.deco)) {
+    if (decoKind(d.t) !== 'path') continue;
+    const x = d.x * TILE, y = d.y * TILE, pat = pathPattern(d.t); if (!pat) continue;
+    ctx.fillStyle = pat; ctx.fillRect(x, y, TILE, TILE);
+    const same = (dx, dy) => { const n = inMap(d.x + dx, d.y + dy) && G.deco[tile(d.x + dx, d.y + dy).d]; return n && n.t === d.t; };
+    ctx.fillStyle = 'rgba(40,25,10,0.28)';
+    if (!same(0, -1)) ctx.fillRect(x, y, TILE, 2); if (!same(0, 1)) ctx.fillRect(x, y + TILE - 2, TILE, 2);
+    if (!same(-1, 0)) ctx.fillRect(x, y, 2, TILE); if (!same(1, 0)) ctx.fillRect(x + TILE - 2, y, 2, TILE);
   }
 }
-
-// Wohnhaus, Scheune und Teich in Pixel-Grafik (die Auftragstafel bleibt gezeichnet)
-function drawDecorPixel(d, x, y, w, h, T) {
-  if (d.id === 'haus') { // Wohnhaus + Hofhund, der davor auf und ab läuft
-    spr(ctx, 'haus', 0, x + w / 2, y + h - 8);
-    const q = Math.sin(T * 0.35), still = Math.abs(Math.cos(T * 0.35)) < 0.25;
-    spr(ctx, 'hund_lauf', still ? 0 : Math.floor(T * 10), Math.round(x + w / 2 + q * (w / 2 - 22)), y + h + 26, Math.cos(T * 0.35) < 0);
-    return true;
+const decoFoot = (d) => ({ x: (d.x + decoW(d.t) / 2) * TILE, y: (d.y + decoH(d.t)) * TILE - 4 });
+function drawDeco(d, T, alpha = 1) {
+  const def = DECO[d.t], k = decoKind(d.t);
+  if (k === 'fence') { drawFence(d, alpha); return; }
+  const f = decoFoot(d);
+  if (def.atlas) { if (alpha !== 1) ctx.globalAlpha = alpha; spr(ctx, def.atlas, 0, f.x, f.y); ctx.globalAlpha = 1; return; }
+  SCN.dspr(ctx, def.spr, f.x, f.y, false, alpha);
+  if (k === 'sign' && d.text) {
+    const r = DSPR[def.spr]; const x0 = Math.round(f.x - r[2] / 2), y0 = Math.round(f.y - r[3]);
+    SCN.pixelText(ctx, d.text, x0 + def.text[0], y0 + def.text[1], def.text[2]);
   }
-  if (d.id === 'scheune') {
-    spr(ctx, 'scheune', 0, x + w / 2, y + h - 14);
-    const total = Object.values(G.inv).reduce((s, n) => s + n, 0);
-    if (total) badge(x + w - 22, y + 34, total);
-    return true;
-  }
-  if (d.id === 'tafel') {
-    const bx = x + w / 2, by = y + h - 12;
-    spr(ctx, 'kisten', 0, x + 20, by + 4);
-    spr(ctx, 'tafel', 0, bx - 22, by); spr(ctx, 'tafel', 0, bx + 22, by);
-    for (let i = 0; i < Math.min(4, G.orders.length); i++) { // ein Zettel pro Auftrag
-      const o = G.orders[i], ready = o && o.wait === undefined && hasAll(o.items);
-      const nx = bx - 36 + (i % 2) * 15 + Math.floor(i / 2) * 44, ny = by - 40 + (i % 2) * 4;
-      ctx.fillStyle = 'rgba(40,25,10,0.45)'; ctx.fillRect(nx + 1, ny + 1, 12, 15);
-      ctx.fillStyle = o && o.wait === undefined ? (ready ? '#cdf29b' : '#f6ecd0') : 'rgba(246,236,208,0.35)'; ctx.fillRect(nx, ny, 12, 15);
-      if (o && o.wait === undefined) { ctx.fillStyle = 'rgba(70,50,30,0.55)'; for (let k = 0; k < 3; k++) ctx.fillRect(nx + 2, ny + 4 + k * 3, 8 - (k === 2 ? 3 : 0), 1); }
-      ctx.fillStyle = '#c0392b'; ctx.fillRect(nx + 5, ny - 1, 2, 2);
+}
+const luma = (h) => { const n = parseInt(h.slice(1), 16); return (n >> 16) * 0.3 + ((n >> 8) & 255) * 0.59 + (n & 255) * 0.11; };
+function drawFence(d, alpha = 1) {
+  const def = DECO[d.t], x = d.x * TILE, y = d.y * TILE;
+  const same = (dx, dy) => { const n = inMap(d.x + dx, d.y + dy) && G.deco[tile(d.x + dx, d.y + dy).d]; return n && decoKind(n.t) === 'fence'; };
+  const L = same(-1, 0), Rr = same(1, 0), U = same(0, -1), D = same(0, 1);
+  if (alpha !== 1) ctx.globalAlpha = alpha;
+  const [c1, c2] = def.pal;
+  if (U || D) { // senkrechte Verbindung (von oben gesehen): zwei Latten, darauf stehende Pfosten
+    const light = luma(c1) > luma(c2) ? c1 : c2, dark = light === c1 ? c2 : c1;
+    const cx = x + TILE / 2, y0 = U ? y - 4 : y + TILE / 2 - 6, y1 = D ? y + TILE - 4 : y + TILE / 2 + 6;
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(cx - 1, y0 + 4, 6, y1 - y0);
+    ctx.fillStyle = dark; ctx.fillRect(cx - 3, y0, 2, y1 - y0); ctx.fillStyle = light; ctx.fillRect(cx + 1, y0, 2, y1 - y0);
+    for (let py = y0 + 4; py <= y1; py += 16) {
+      ctx.fillStyle = '#2a1d14'; ctx.fillRect(cx - 3, py - 12, 7, 13);
+      ctx.fillStyle = light; ctx.fillRect(cx - 2, py - 11, 5, 11); ctx.fillStyle = dark; ctx.fillRect(cx + 1, py - 11, 2, 11);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(cx - 2, py - 11, 5, 1);
     }
-    const n = G.orders.filter((o) => o.wait === undefined && hasAll(o.items)).length;
-    if (n) badge(x + w - 18, y + 22 + Math.sin(T * 5) * 3, n);
-    return true;
   }
-  if (d.id !== 'teich') return false;
-  const cx = x + w / 2, cy = y + h / 2;
-  ctx.fillStyle = PX.water; ctx.fillRect(x + 8, y + 8, w - 16, h - 16);
-  ctx.fillStyle = 'rgba(170,200,245,0.55)';
-  for (let k = 0; k < 4; k++) { // kleine Wellen
-    const q = (T * 0.25 + k / 4) % 1;
-    ctx.fillRect(Math.round(x + 22 + hash(k, 3) * (w - 60) + q * 12), Math.round(y + 22 + hash(k, 5) * (h - 44)), 6, 2);
+  if (L || Rr || !(U || D)) { // waagerechtes Stück aus dem Zaun-Bild
+    const r = DSPR[def.spr]; if (!r) { ctx.globalAlpha = 1; return; }
+    ctx.drawImage(SCN.DATL, r[0], r[1], Math.min(48, r[2]), r[3], x, y + TILE - r[3] - 6, Math.min(48, r[2]), r[3]);
   }
-  spr(ctx, 'seerosen', Math.floor(T * 3) % 6, x + 36, y + h - 14);
-  nineSlice(ctx, 'coast', Math.floor(T * 4) % 6, x, y, w, h);
-  const jump = (T * 0.25) % 1; // ab und zu springt ein Fisch
-  if (G.pond.fish > 0 && jump < 0.12) { // Pixel-Fisch springt aus dem Wasser
-    const q = jump / 0.12, f = Math.min(8, Math.floor(q * 9));
-    spr(ctx, 'fischspritzer', f, cx + 18, cy + 12); spr(ctx, 'fischsprung', f, cx + 18, Math.round(cy + 10 - Math.sin(q * Math.PI) * 12));
+  ctx.globalAlpha = 1;
+}
+// Licht & Feuer: Flammen flackern, Lampen glimmen, Glühwürmchen blinken
+function drawDecoLights(T) {
+  for (const d of Object.values(G.deco)) {
+    const L = DECO[d.t].light; if (!L) continue;
+    const f = decoFoot(d), r = DSPR[DECO[d.t].spr]; if (!r) continue;
+    const top = f.y - r[3];
+    if (L === 'flame') {
+      const fy = d.t === 'fackel' ? top + 18 : top + 22;
+      SCN.danim(ctx, 'flamme', Math.floor(T * 10 + d.id), f.x, fy);
+    } else if (L === 'glow') {
+      const a = 0.18 + Math.sin(T * 3 + d.id) * 0.05, gy = d.t === 'windlicht' ? top + 14 : top + 12;
+      const gr = ctx.createRadialGradient(f.x, gy, 1, f.x, gy, 18); gr.addColorStop(0, `rgba(255,214,120,${a})`); gr.addColorStop(1, 'rgba(255,214,120,0)');
+      ctx.fillStyle = gr; ctx.fillRect(f.x - 18, gy - 18, 36, 36);
+    } else if (L === 'twinkle') {
+      for (let i = 0; i < 9; i++) if (Math.sin(T * 4 + i * 1.7 + d.id) > 0.3) { ctx.fillStyle = 'rgba(255,250,210,0.9)'; ctx.fillRect(Math.round(f.x - r[2] / 2 + 8 + i * (r[2] - 16) / 8), Math.round(top + 12 + Math.sin(i / 8 * Math.PI) * 12), 2, 2); }
+    } else if (L === 'fireflies') {
+      for (let i = 0; i < 7; i++) {
+        const fx = f.x + Math.sin(T * 0.7 + i * 2.3) * 18, fy = top + 10 + Math.cos(T * 0.9 + i * 1.3) * 9;
+        if (Math.sin(T * 3 + i * 1.9) > 0) { ctx.fillStyle = 'rgba(232,255,122,0.95)'; ctx.fillRect(Math.round(fx), Math.round(fy), 2, 2); }
+      }
+    }
   }
-  spr(ctx, 'ente_schwimm', Math.floor(T * 6), Math.round(cx - 14 + Math.sin(T * 0.4) * 26), cy + 16, Math.cos(T * 0.4) < 0);
-  if (G.level >= POND.level) { // Steg mit Angel
-    ctx.fillStyle = '#9c6b3c'; ctx.fillRect(x + w - 26, cy - 6, 26, 12);
-    ctx.fillStyle = '#6e4626'; for (let k = 0; k < 5; k++) ctx.fillRect(x + w - 26 + k * 6, cy - 6, 1, 12);
-    ctx.fillRect(x + w - 26, cy + 5, 26, 1);
-    ctx.strokeStyle = '#5d3a1a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + w - 8, cy + 2); ctx.lineTo(x + w - 30, cy - 26); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + w - 30, cy - 26); ctx.lineTo(x + w - 36, cy + 4); ctx.stroke();
-    if (G.pond.fish > 0) bubbleIcon(cx + 10, y - 2 + Math.sin(T * 3) * 2, '🎣', 13, '#3b8fcf', G.pond.fish);
-  }
-  return true;
 }
 
 function badge(x, y, n) {
@@ -521,88 +410,51 @@ function bubbleIcon(x, y, icon, r, border, n) {
 }
 
 function drawParcels() {
-  const next = nextParcelInfo();
-  for (let i = 0; i < G.parcels.length; i++) {
-    const px = i % PARCEL_COLS, py = Math.floor(i / PARCEL_COLS);
-    const x = (PARCEL_X0 + px * PARCEL) * TILE, y = (PARCEL_Y0 + py * PARCEL) * TILE, w = PARCEL * TILE;
+  PARCELS.forEach((p, i) => {
+    const x = p.x * TILE, y = p.y * TILE, w = p.w * TILE, h = p.h * TILE;
     if (G.parcels[i]) {
-      for (let tx = 0; tx < PARCEL; tx++) for (let ty = 0; ty < PARCEL; ty++) {
-        const gx = PARCEL_X0 + px * PARCEL + tx, gy = PARCEL_Y0 + py * PARCEL + ty, t = tile(gx, gy);
-        if (t.s !== 'soil' || t.b) continue;
+      for (let tx = 0; tx < p.w; tx++) for (let ty = 0; ty < p.h; ty++) {
+        const gx = p.x + tx, gy = p.y + ty, t = tile(gx, gy);
+        if (t.s !== 'soil' || t.b || t.d) continue;
         const sx = gx * TILE, sy = gy * TILE, wet = boostMap && boostMap[idx(gx, gy)];
-        if (atlasReady) { // Pixel-Ackerboden, Kacheln leicht voneinander abgesetzt
-          const f = SPR.soil[Math.floor(hash(gx, gy) * 3)];
-          ctx.fillStyle = '#93533a'; ctx.fillRect(sx, sy, TILE, TILE); // Erdfarbe unter die Kachel (das Sheet hat durchsichtige Fugen)
-          ctx.drawImage(ATL, f[0], f[1], 48, 48, sx, sy, TILE, TILE);
-          if (wet) { ctx.fillStyle = 'rgba(30,45,110,0.24)'; ctx.fillRect(sx, sy, TILE, TILE); }
-          else if (t.c && t.p < 1) { ctx.fillStyle = 'rgba(35,18,6,0.26)'; ctx.fillRect(sx, sy, TILE, TILE); } // bepflanzt: dunkle, feuchte Erde
-          else if (t.c) { ctx.fillStyle = 'rgba(255,215,90,0.16)'; ctx.fillRect(sx, sy, TILE, TILE); }     // reif: heller, goldener Boden
-          ctx.fillStyle = 'rgba(55,28,12,0.35)'; ctx.fillRect(sx, sy, TILE, 2); ctx.fillRect(sx, sy, 2, TILE);
-          ctx.fillStyle = 'rgba(255,215,160,0.12)'; ctx.fillRect(sx + 2, sy + 2, TILE - 2, 1);
-          if (wet) { ctx.fillStyle = 'rgba(170,215,255,0.8)'; ctx.fillRect(sx + 12, sy + 34, 2, 2); ctx.fillRect(sx + 34, sy + 16, 2, 2); }
-          continue;
-        }
-        ctx.fillStyle = 'rgba(60,35,15,0.35)'; rr(sx + 2, sy + 4, TILE - 4, TILE - 4, 7); ctx.fill();
-        ctx.fillStyle = wet ? '#6e4426' : t.c ? '#7d4c29' : '#8f5c34'; rr(sx + 2, sy + 2, TILE - 4, TILE - 5, 7); ctx.fill();
-        ctx.fillStyle = 'rgba(255,220,170,0.10)'; rr(sx + 4, sy + 3, TILE - 8, 6, 3); ctx.fill();
-        for (let k = 0; k < 3; k++) { // Furchen
-          ctx.fillStyle = 'rgba(40,20,5,0.22)'; rr(sx + 7, sy + 10 + k * 12, TILE - 14, 4, 2); ctx.fill();
-          ctx.fillStyle = 'rgba(255,220,170,0.12)'; ctx.fillRect(sx + 8, sy + 14 + k * 12, TILE - 16, 1.5);
-        }
-        if (wet) { ctx.fillStyle = 'rgba(140,200,255,0.55)'; ctx.beginPath(); ctx.arc(sx + 12, sy + 34, 1.6, 0, 7); ctx.arc(sx + 34, sy + 16, 1.4, 0, 7); ctx.fill(); }
+        const f = SPR.soil[Math.floor(hash(gx, gy) * 3)];
+        ctx.fillStyle = '#93533a'; ctx.fillRect(sx, sy, TILE, TILE); // Erdfarbe unter die Kachel (das Sheet hat durchsichtige Fugen)
+        ctx.drawImage(ATL, f[0], f[1], 48, 48, sx, sy, TILE, TILE);
+        if (t.c && t.p >= 1) { ctx.fillStyle = 'rgba(255,232,180,0.34)'; ctx.fillRect(sx, sy, TILE, TILE); }       // reif: deutlich heller
+        else if (wet) { ctx.fillStyle = 'rgba(30,45,110,0.24)'; ctx.fillRect(sx, sy, TILE, TILE); }
+        else if (t.c) { ctx.fillStyle = 'rgba(35,18,6,0.26)'; ctx.fillRect(sx, sy, TILE, TILE); }                    // wächst: dunkle, feuchte Erde
+        ctx.fillStyle = 'rgba(55,28,12,0.35)'; ctx.fillRect(sx, sy, TILE, 2); ctx.fillRect(sx, sy, 2, TILE);
+        ctx.fillStyle = 'rgba(255,215,160,0.12)'; ctx.fillRect(sx + 2, sy + 2, TILE - 2, 1);
+        if (wet && !(t.c && t.p >= 1)) { ctx.fillStyle = 'rgba(170,215,255,0.8)'; ctx.fillRect(sx + 12, sy + 34, 2, 2); ctx.fillRect(sx + 34, sy + 16, 2, 2); }
       }
-      continue;
+      // eigenes Land: dezenter heller Rand, damit man sieht, wo man säen und bauen darf
+      ctx.fillStyle = 'rgba(255,245,200,0.22)';
+      ctx.fillRect(x, y, w, 2); ctx.fillRect(x, y + h - 2, w, 2); ctx.fillRect(x, y, 2, h); ctx.fillRect(x + w - 2, y, 2, h);
+      return;
     }
-    ctx.fillStyle = 'rgba(25,55,20,0.38)'; ctx.fillRect(x, y, w, w);
-    if (atlasReady) { // Gestrüpp + Holzzaun in Pixel-Grafik
-      const bush = [];
-      for (let k = 0; k < 6; k++) bush.push([x + 20 + Math.round(hash(i, k) * (w - 40)), y + 30 + Math.round(hash(k, i + 7) * (w - 44)), Math.floor(hash(i + k, 3) * 6)]);
-      bush.sort((a, b) => a[1] - b[1]).forEach(([bx, by, v]) => spr(ctx, 'busch', v, bx, by, v % 2 === 1));
-      nineSlice(ctx, 'fence9', 0, x, y, w, w);
-    } else for (let k = 0; k < 6; k++) { // Gestrüpp
-      const bx = x + 18 + hash(i, k) * (w - 36), by = y + 18 + hash(k, i + 7) * (w - 36);
-      ctx.fillStyle = '#2f6e2c'; ctx.beginPath(); ctx.arc(bx, by, 7 + hash(i + k, 3) * 5, 0, 7); ctx.fill();
-      ctx.fillStyle = '#3c8236'; ctx.beginPath(); ctx.arc(bx - 2, by - 3, 4 + hash(i + k, 4) * 3, 0, 7); ctx.fill();
-    }
-    if (!atlasReady) { // Zaun: Pfosten + zwei Latten
-      ctx.strokeStyle = '#c9a26b'; ctx.lineWidth = 2.5; ctx.strokeRect(x + 5, y + 5, w - 10, w - 10); ctx.strokeRect(x + 5, y + 11, w - 10, w - 22);
-      ctx.fillStyle = '#9b7040';
-      for (let k = 0; k <= 4; k++) for (const [fx, fy] of [[x + 3 + k * (w - 10) / 4, y + 1], [x + 3 + k * (w - 10) / 4, y + w - 11], [x + 1, y + 3 + k * (w - 10) / 4], [x + w - 7, y + 3 + k * (w - 10) / 4]]) ctx.fillRect(fx, fy, 5, 8);
-    }
-    if (parcelBuyable(i)) {
-      const ok = G.level >= next.level;
-      ctx.save(); ctx.translate(x + w / 2, y + w / 2); ctx.scale(uiK(), uiK());
-      ctx.fillStyle = '#7a4e2a'; ctx.fillRect(-3, 0, 6, 26);
-      ctx.fillStyle = '#e8c690'; rr(-46, -26, 92, 36, 6); ctx.fill();
-      ctx.strokeStyle = '#7a4e2a'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.fillStyle = '#4a2f18'; ctx.font = 'bold 13px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(ok ? '💰 ' + fmt(next.cost) : '🔒 Level ' + next.level, 0, -8);
-      ctx.restore();
-    }
-  }
+    // fremdes Land: Gestrüpp + Holzzaun + Schild mit Größe und Preis bzw. Level
+    ctx.fillStyle = 'rgba(25,55,20,0.38)'; ctx.fillRect(x, y, w, h);
+    const bush = [], nb = Math.round(p.w * p.h / 3);
+    for (let k = 0; k < nb; k++) bush.push([x + 20 + Math.round(hash(i, k) * (w - 40)), y + 30 + Math.round(hash(k, i + 7) * (h - 44)), Math.floor(hash(i + k, 3) * 6)]);
+    bush.sort((a2, b2) => a2[1] - b2[1]).forEach(([bx, by, v]) => spr(ctx, 'busch', v, bx, by, v % 2 === 1));
+    nineSlice(ctx, 'fence9', 0, x, y, w, h);
+    const info = nextParcelInfo(i), ok = G.level >= info.level;
+    ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.scale(uiK(), uiK());
+    ctx.fillStyle = '#7a4e2a'; ctx.fillRect(-3, 0, 6, 26);
+    ctx.fillStyle = '#e8c690'; rr(-48, -34, 96, 44, 6); ctx.fill();
+    ctx.strokeStyle = '#7a4e2a'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#4a2f18'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 12px system-ui'; ctx.fillText(p.w + ' × ' + p.h + ' Felder', 0, -22);
+    ctx.font = 'bold 13px system-ui'; ctx.fillText(ok ? '💰 ' + fmt(info.cost) : '🔒 Level ' + info.level, 0, -5);
+    ctx.restore();
+  });
 }
 
-// Markierung über jeder bepflanzten Kachel (Pixel-Grafik):
-//  wächst → Symbol der Pflanze + grüner Fortschrittsbalken · reif → goldene, pulsierende Ecken + Funkeln
-function drawCropMark(x, y, T) {
-  const t = tile(x, y); if (!t.c) return;
-  const sx = x * TILE, sy = y * TILE;
-  if (t.p >= 1) {
-    const a = 0.65 + Math.sin(T * 4 + x * 0.9 + y * 0.6) * 0.35, L = 13, w = 3, e = TILE - 1;
-    ctx.fillStyle = 'rgba(60,35,0,0.35)'; // dunkler Schatten unter den Ecken für Kontrast
-    for (const [cx, cy, dx, dy] of [[sx + 1, sy + 1, 1, 1], [sx + e, sy + 1, -1, 1], [sx + 1, sy + e, 1, -1], [sx + e, sy + e, -1, -1]]) {
-      ctx.fillRect(dx > 0 ? cx + 1 : cx - L + 1, dy > 0 ? cy + 1 : cy - w + 1, L, w); ctx.fillRect(dx > 0 ? cx + 1 : cx - w + 1, dy > 0 ? cy + 1 : cy - L + 1, w, L);
-    }
-    ctx.fillStyle = `rgba(255,214,64,${a})`;
-    for (const [cx, cy, dx, dy] of [[sx + 1, sy + 1, 1, 1], [sx + e, sy + 1, -1, 1], [sx + 1, sy + e, 1, -1], [sx + e, sy + e, -1, -1]]) {
-      ctx.fillRect(dx > 0 ? cx : cx - L, dy > 0 ? cy : cy - w, L, w); ctx.fillRect(dx > 0 ? cx : cx - w, dy > 0 ? cy : cy - L, w, L);
-    }
-    const k = Math.floor(T * 2.5 + hash(x, y) * 4) % 4, fx = sx + [12, 35, 33, 14][k], fy = sy + [11, 15, 33, 30][k];
-    ctx.fillStyle = '#fff6c2'; ctx.fillRect(fx - 1, fy - 5, 2, 10); ctx.fillRect(fx - 5, fy - 1, 10, 2);
-    ctx.fillStyle = '#fff'; ctx.fillRect(fx - 1, fy - 1, 2, 2);
-    return;
-  }
-  const by = sy + TILE - 9; // wächst: Symbol links, Balken rechts – unten im Feld
+// Markierung über wachsenden Pflanzen: Symbol + grüner Fortschrittsbalken.
+// Reif = heller Boden + große Pflanze (keine blinkenden Ecken mehr, Update 6).
+function drawCropMark(x, y) {
+  const t = tile(x, y); if (!t.c || t.p >= 1) return;
+  const sx = x * TILE, sy = y * TILE, by = sy + TILE - 9;
   ctx.fillStyle = 'rgba(255,248,230,0.92)'; ctx.beginPath(); ctx.arc(sx + 9, by + 2, 7.5, 0, 7); ctx.fill();
   ctx.strokeStyle = 'rgba(60,35,10,0.6)'; ctx.lineWidth = 1; ctx.stroke();
   drawEmoji(ctx, ITEMS[t.c].icon, sx + 9, by + 2, 11);
@@ -610,43 +462,12 @@ function drawCropMark(x, y, T) {
   ctx.fillStyle = t.p > 0.85 ? '#d9f26a' : '#9be15d'; ctx.fillRect(sx + 19, by + 1, Math.max(1, Math.round((TILE - 24) * t.p)), 3);
 }
 
-function drawCrop(x, y, T) {
+function drawCrop(x, y) {
   const t = tile(x, y);
-  if (!t.c) return;
-  const px = x * TILE + TILE / 2, py = y * TILE + TILE / 2, p = t.p, icon = ITEMS[t.c].icon;
-  if (atlasReady && SPR[t.c]) { // Pixel-Pflanzen: 3 Wachstumsstufen + reif
-    const stage = p >= 1 ? 3 : p < 0.33 ? 0 : p < 0.66 ? 1 : 2, by = y * TILE + TILE - 3;
-    if (p >= 1) { // weiches Leuchten: reif!
-      const gl = ctx.createRadialGradient(px, py + 6, 2, px, py + 6, 24);
-      gl.addColorStop(0, `rgba(255,236,120,${0.45 + Math.sin(T * 3 + x + y) * 0.12})`); gl.addColorStop(1, 'rgba(255,236,120,0)');
-      ctx.fillStyle = gl; ctx.fillRect(px - 24, py - 18, 48, 48);
-    }
-    if (SPR[t.c][0][6] <= 16) { spr(ctx, t.c, stage, px - 15, by - 3); spr(ctx, t.c, stage, px + 15, by - 3); spr(ctx, t.c, stage, px, by); }
-    else spr(ctx, t.c, stage, px, by);
-    return;
-  }
-  if (p >= 1) {
-    const b = Math.sin(T * 4 + x + y) * 2;
-    ctx.fillStyle = 'rgba(255,240,120,0.38)'; ctx.beginPath(); ctx.arc(px, py + 2, 18, 0, 7); ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(px, py + 15, 12, 4, 0, 0, 7); ctx.fill();
-    drawEmoji(ctx, icon, px, py + b, 34);
-    if ((T * 1.3 + hash(x, y) * 10) % 3 < 0.25) drawEmoji(ctx, '✨', px + 13, py - 13, 14);
-    return;
-  }
-  const stage = p < 0.33 ? 0 : p < 0.66 ? 1 : 2, sway = Math.sin(T * 2 + x * 0.7) * 1.5;
-  const spots = [[-11, -9], [9, -10], [-9, 9], [11, 8], [0, 0]];
-  for (const [dx, dy] of spots) {
-    const sx = px + dx, sy = py + dy + 4;
-    if (stage === 0) { ctx.fillStyle = '#5a3a1e'; ctx.beginPath(); ctx.arc(sx, sy, 1.8, 0, 7); ctx.fill(); ctx.fillStyle = '#9ad35a'; ctx.fillRect(sx - 1, sy - 4, 2, 3); continue; }
-    const hgt = stage === 1 ? 7 : 11;
-    ctx.strokeStyle = '#3f8f2d'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + sway, sy - hgt); ctx.stroke();
-    ctx.fillStyle = stage === 1 ? '#7cc94a' : '#5fb53b';
-    ctx.beginPath(); ctx.ellipse(sx + sway - 3, sy - hgt + 1, 4, 2.2, -0.6, 0, 7); ctx.ellipse(sx + sway + 3, sy - hgt + 2, 4, 2.2, 0.6, 0, 7); ctx.fill();
-  }
-  // kleine Vorschau der Frucht: man sieht sofort, was dort wächst
-  ctx.globalAlpha = stage === 0 ? 0.5 : stage === 1 ? 0.7 : 0.95;
-  drawEmoji(ctx, icon, px, py + 1, stage === 0 ? 11 : stage === 1 ? 15 : 21);
-  ctx.globalAlpha = 1;
+  if (!t.c || !SPR[t.c]) return;
+  const px = x * TILE + TILE / 2, p = t.p, stage = p >= 1 ? 3 : p < 0.33 ? 0 : p < 0.66 ? 1 : 2, by = y * TILE + TILE - 3;
+  if (SPR[t.c][0][6] <= 16) { spr(ctx, t.c, stage, px - 15, by - 3); spr(ctx, t.c, stage, px + 15, by - 3); spr(ctx, t.c, stage, px, by); }
+  else spr(ctx, t.c, stage, px, by);
 }
 
 // ---------- Gebäude, Bäume & Tiere ----------
@@ -920,8 +741,8 @@ function drawBubble(b, T) {
 // ---------- Stadt ----------
 const lotRect = (l) => ({ x: (TOWN_X0 + l.x) * TILE, y: l.y * TILE, w: l.w * TILE, h: l.h * TILE });
 function townHit(x, y) { // Kachel → Projekt-ID (oder 'town' für den Rest der Stadt)
-  if (x < TOWN_X0) return null;
-  const t = x - TOWN_X0;
+  if (!TOWN_ON || x < TOWN_X0 || y > 13) return null;
+  const t = x - TOWN_X0; y -= TOWN_Y0;
   for (const [id, p] of Object.entries(PROJECTS)) { const l = p.lot; if (t >= l.x && t < l.x + l.w && y >= l.y && y < l.y + l.h) return id; }
   return 'town';
 }
@@ -1153,19 +974,18 @@ function drawAmbient(T) {
 // ---------- Tutorial-Zeiger ----------
 function tutorialTarget() {
   const st = tutorialStep();
-  if (!st || !G.introDone || S.placing) return null;
+  if (!st || !G.introDone || S.placing || S.decoPlace) return null;
   const c = (x, y) => ({ x: (x + 0.5) * TILE, y: (y + 0.5) * TILE });
   const findTile = (fn) => { for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) if (owned(x, y) && fn(tile(x, y))) return c(x, y); return null; };
   switch (st.target) {
-    case 'soil': return S.tool === 'hand' || S.tool === 'schaufel' ? null : findTile((t) => t.s === 'soil' && !t.c && !t.b);
+    case 'soil': return S.tool === 'hand' || S.tool === 'schaufel' ? null : findTile((t) => t.s === 'soil' && !t.c && !t.b && !t.d);
     case 'crop': return findTile((t) => t.c && t.p >= 1);
-    case 'grass': return S.tool === 'hand' || S.tool === 'schaufel' ? null : findTile((t) => t.s === 'grass' && !t.b && !t.c);
-    case 'tafel': { if (!G.orders.some((o) => o.wait === undefined && hasAll(o.items))) return null; const d = DECOR[1]; return { x: (d.x + d.w / 2) * TILE, y: (d.y + 1) * TILE }; }
-    case 'stall': { const b = Object.values(G.buildings).find((b) => b.type === 'huehnerstall' && (!b.job || b.job.p >= 1)); return b ? { x: (b.x + 1) * TILE, y: (b.y + 1) * TILE } : null; }
+    case 'grass': return S.tool === 'hand' || S.tool === 'schaufel' ? null : findTile((t) => t.s === 'grass' && !t.b && !t.c && !t.d);
+    case 'tafel': { if (!G.orders.some((o) => o.wait === undefined && hasAll(o.items))) return null; return { x: 13.55 * TILE, y: 12.2 * TILE }; }
+    case 'stall': { const b = Object.values(G.buildings).find((b2) => b2.type === 'huehnerstall' && (!b2.job || b2.job.p >= 1)); return b ? { x: (b.x + 1) * TILE, y: (b.y + 1) * TILE } : null; }
     case 'parcel': {
-      if (G.level < nextParcelInfo().level) return null;
-      const i = G.parcels.findIndex((o, k) => parcelBuyable(k)); if (i < 0) return null;
-      return { x: (PARCEL_X0 + (i % PARCEL_COLS) * PARCEL + 2) * TILE, y: (PARCEL_Y0 + Math.floor(i / PARCEL_COLS) * PARCEL + 2) * TILE - 20 * uiK() };
+      const i = cheapestParcel(); if (i < 0 || G.level < PARCELS[i].lv) return null;
+      const p = PARCELS[i]; return { x: (p.x + p.w / 2) * TILE, y: (p.y + p.h / 2) * TILE - 20 * uiK() };
     }
   }
   return null;
@@ -1178,18 +998,28 @@ function drawPointer(T) {
   drawEmoji(ctx, '👇', p.x, p.y - (30 + Math.abs(Math.sin(T * 4)) * 8) * k, 30 * k);
 }
 
+function footRect(x, y, w, h, ok, T) {
+  ctx.fillStyle = ok ? 'rgba(90,220,90,0.35)' : 'rgba(230,70,60,0.45)';
+  rr(x * TILE, y * TILE, w * TILE, h * TILE, 8); ctx.fill();
+  ctx.strokeStyle = ok ? '#7ed957' : '#e74c3c'; ctx.lineWidth = 3; ctx.setLineDash([8, 6]); ctx.lineDashOffset = -T * 20;
+  rr(x * TILE + 1.5, y * TILE + 1.5, w * TILE - 3, h * TILE - 3, 8); ctx.stroke(); ctx.setLineDash([]);
+}
 function drawHover(T) {
   const h = S.hover;
+  if (S.decoPlace) { // Deko-Vorschau: halb durchsichtig, grün = passt, rot = geht hier nicht
+    if (!h) return;
+    const id = S.decoPlace.id, ok = decoOK(id, h.x, h.y, S.decoPlace.move);
+    if (decoKind(id) !== 'path') drawDeco({ id: 0, t: id, x: h.x, y: h.y, text: S.decoPlace.text }, T, 0.75);
+    footRect(h.x, h.y, decoW(id), decoH(id), ok, T);
+    return;
+  }
   if (!h) return;
   if (S.placing) {
     const d = BUILDINGS[S.placing], ok = canPlace(S.placing, h.x, h.y);
     ctx.globalAlpha = 0.8;
     drawBuilding({ id: 0, type: S.placing, x: h.x, y: h.y, animals: 1, horses: ['braun'], job: null }, T);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = ok ? 'rgba(90,220,90,0.35)' : 'rgba(230,70,60,0.45)';
-    rr(h.x * TILE, h.y * TILE, d.w * TILE, d.h * TILE, 8); ctx.fill();
-    ctx.strokeStyle = ok ? '#7ed957' : '#e74c3c'; ctx.lineWidth = 3; ctx.setLineDash([8, 6]); ctx.lineDashOffset = -T * 20;
-    rr(h.x * TILE + 1.5, h.y * TILE + 1.5, d.w * TILE - 3, d.h * TILE - 3, 8); ctx.stroke(); ctx.setLineDash([]);
+    footRect(h.x, h.y, d.w, d.h, ok, T);
     if (S.placing === 'sprinkler') {
       ctx.fillStyle = 'rgba(80,170,255,0.2)';
       for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) if (Math.abs(dx) + Math.abs(dy) <= 3) ctx.fillRect((h.x + dx) * TILE, (h.y + dy) * TILE, TILE, TILE);
@@ -1198,7 +1028,7 @@ function drawHover(T) {
   }
   if (!inMap(h.x, h.y)) return;
   const a = actionFor(h.x, h.y, S.tool), t = tile(h.x, h.y);
-  if (a || t.c) {
+  if (a || t.c || (S.tool === 'schaufel' && t.d)) {
     ctx.strokeStyle = S.tool === 'schaufel' ? 'rgba(255,120,90,0.9)' : 'rgba(255,255,255,0.85)';
     ctx.lineWidth = 3; rr(h.x * TILE + 2, h.y * TILE + 2, TILE - 4, TILE - 4, 7); ctx.stroke();
   }
