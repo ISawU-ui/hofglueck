@@ -1,7 +1,7 @@
 // ===== Spieldaten: hier wird das Balancing eingestellt =====
 'use strict';
 
-const GAME_VERSION = '7.1 (10.11.2026)'; // im Spielstand-Fenster sichtbar – so sieht man am Handy, ob die neue Version da ist
+const GAME_VERSION = '7.2 (10.11.2026)'; // im Spielstand-Fenster sichtbar – so sieht man am Handy, ob die neue Version da ist
 const TILE = 48;           // Pixel pro Kachel (Welt-Koordinaten)
 // Update 6: neue, größere Karte aus dem Hof-Plan der Werkstatt (vorher 24 × 16)
 const MAP_W = 40;          // Kacheln breit (Hof)
@@ -34,12 +34,13 @@ const FARM = {
   park: { x: 5, y: 11, w: 2, h: 2 },           // Stellplatz
   beds: [[4, 6], [5, 6], [7, 6], [8, 6]],      // Vorgarten-Beete (nur Blumen)
 };
-// feste Dinge auf dem Hof (Kachel-Rechtecke zum Antippen; keine Deko darauf)
+// feste Dinge auf dem Hof (Kachel-Rechtecke zum Antippen; keine Deko darauf) – so groß wie ihr Bild, nicht größer.
+// Das Haus wächst mit dem Ausbau: sein Rechteck rechnet render.js aus dem Hausbild aus (houseRectDyn), hier steht das größte.
 const FARM_OBJ = [
-  { id: 'haus', x: 4, y: 3, w: 5, h: 3 }, { id: 'scheune', x: 10, y: 4, w: 3, h: 2 }, { id: 'kratzbaum', x: 13, y: 5, w: 1, h: 1 },
+  { id: 'haus', x: 4, y: 3, w: 5, h: 3 }, { id: 'scheune', x: 10, y: 4, w: 2, h: 2 }, { id: 'kratzbaum', x: 13, y: 5, w: 1, h: 1 },
   { id: 'hund', x: 4, y: 8, w: 2, h: 1 }, { id: 'hofladen', x: 10, y: 11, w: 3, h: 2 }, { id: 'tafel', x: 13, y: 12, w: 1, h: 1 },
   { id: 'stellplatz', x: 5, y: 11, w: 2, h: 2 }, { id: 'steg', x: 6, y: 17, w: 2, h: 4 }, { id: 'boot', x: 6, y: 21, w: 2, h: 2 },
-  { id: 'bergwerk', x: 37, y: 2, w: 3, h: 3 }, { id: 'haendler', x: 10, y: 14, w: 2, h: 1 },
+  { id: 'bergwerk', x: 37, y: 2, w: 3, h: 3 }, { id: 'haendler', x: 10, y: 14, w: 3, h: 1 },
   { id: 'sonnenfeld', x: 38, y: 14, w: 2, h: 2 }, { id: 'steg', x: 8, y: 16, w: 2, h: 2 }, // Wegweiser „Angelsteg“ gehört zum Steg // Wegweiser am Ende der Dorfstraße (später: mit dem Auto in die Stadt)
 ];
 // Deko-Zonen außerhalb der Landstücke (dort liegen nie Felder)

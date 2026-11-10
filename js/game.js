@@ -24,7 +24,9 @@ function isRoad(x, y) {
   return (y === f.road.y && x >= f.road.x0) || (x === f.stegweg.x && y >= f.stegweg.y0 && y <= f.stegweg.y1)
     || (x === f.minenweg.x && y >= f.minenweg.y0 && y <= f.minenweg.y1) || inRect(f.link, x, y);
 }
-const farmObjAt = (x, y) => FARM_OBJ.find((o) => inRect(o, x, y));
+// Haus: nur die Felder, die das aktuelle Hausbild wirklich bedeckt (Häuschen ist schmaler als das Landhaus)
+const houseRect = () => (typeof houseRectDyn === 'function' && houseRectDyn()) || FARM_OBJ[0];
+const farmObjAt = (x, y) => FARM_OBJ.find((o) => inRect(o.id === 'haus' ? houseRect() : o, x, y));
 const isBed = (x, y) => FARM.beds.some(([bx, by]) => bx === x && by === y);
 const zoneAt = (x, y) => DECO_ZONES.find((z) => inRect(z, x, y));
 const farmObj = (id) => FARM_OBJ.find((o) => o.id === id);

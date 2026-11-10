@@ -216,6 +216,16 @@ function buildGround() {
 
 // ---------- Hof: Haus, Scheune, Hofladen, Hund, Katze, Auto, Händler, Tiere am See ----------
 const HOUSE_FOOT = { x: 6.6, y: 6.25 };
+// Felder, die das Hausbild bedeckt (ein Feld zählt, wenn das Bild mehr als 30 % davon überdeckt) – für Antippen und Deko-Platz
+let houseRectCache = null;
+function houseRectDyn() {
+  if (!SCN.ready) return null;
+  const key = G.house.type; if (houseRectCache && houseRectCache.key === key) return houseRectCache.r;
+  const hc = SCN.houseCanvas(G.house), x0 = HOUSE_FOOT.x - hc.width / 2 / TILE, x1 = HOUSE_FOOT.x + hc.width / 2 / TILE, y1 = HOUSE_FOOT.y, y0 = y1 - hc.height / TILE;
+  const tx0 = Math.floor(x0 + 0.3), tx1 = Math.ceil(x1 - 0.3) - 1, ty0 = Math.floor(y0 + 0.3), ty1 = Math.ceil(y1 - 0.3) - 1;
+  const r = { id: 'haus', x: tx0, y: ty0, w: tx1 - tx0 + 1, h: ty1 - ty0 + 1 };
+  houseRectCache = { key, r }; return r;
+}
 function farmObjects(list, T) {
   const add = (y, fn) => list.push([y, fn]);
   // Wohnhaus (Haus-Ausbau): zur Mitte ausgerichtet
