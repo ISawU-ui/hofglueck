@@ -605,7 +605,7 @@ function decoCard(id) {
 function decoHtml() {
   const placed = decoCount();
   let h = `<p class="hint">🌟 Hof-Schönheit: <b>${fmt(beauty())}</b> · ${placed} Deko aufgestellt<br>
-    Deko steht auf deinem Land und in den Deko-Zonen (Hofplatz, Seeufer, Waldrand, Uferwiese). In die Beete vor dem Haus passen Blumen.
+    Deko kannst du überall auf die Wiese, den Hofplatz und dein Land stellen – nur nicht auf Land, das dir noch nicht gehört. In die Beete vor dem Haus passen Blumen.
     ${TAP()} auf Deko zum Verschieben oder Einlagern. Der Preis bleibt immer gleich.</p>`;
   const off = traderOffer(), od = DECO[off];
   h += `<div class="card trader"><div class="dimg">${decoImg(off)}</div><div class="grow"><b>🧺 Wanderhändler</b><br><small>Heute: ${od.name} – gibt es nur bei ihm</small></div>

@@ -28,11 +28,11 @@ function confirmDeco() {
   const dp = S.decoPlace, h = S.hover; if (!dp || !h) return;
   if (dp.move) {
     if (moveDeco(dp.move, h.x, h.y)) { S.decoPlace = null; S.hover = null; toast('Verschoben ✔', 'good'); }
-    else toast('Hier geht es nicht (eigenes Land oder Deko-Zone, frei).', 'bad');
+    else toast(decoWhyNot(G.deco[dp.move].t, h.x, h.y), 'bad');
     return;
   }
   const n = placeDeco(dp.id, h.x, h.y);
-  if (!n) { toast(!decoOK(dp.id, h.x, h.y) ? (isBed(h.x, h.y) ? 'Ins Beet passen nur Blumen.' : 'Hier geht es nicht (eigenes Land oder Deko-Zone, frei).') : 'Nicht genug Geld!', 'bad'); return; }
+  if (!n) { toast(!decoOK(dp.id, h.x, h.y) ? decoWhyNot(dp.id, h.x, h.y) : 'Nicht genug Geld!', 'bad'); return; }
   S.decoPlace = null; S.hover = null;
   if (decoKind(G.deco[n].t) === 'sign') askSignText(n);
   else toast(DECO[G.deco[n].t].name + ' aufgestellt! 🌼', 'good');
@@ -67,6 +67,7 @@ function tapAt(x, y) {
       case 'kratzbaum': if (G.pets.katze) { toast('😺 Die Hofkatze schnurrt.'); sfx('animal'); } return;
       case 'hund': toast('🐶 Der Hofhund wedelt mit dem Schwanz.'); sfx('animal'); fxPop((o.x + 1) * TILE, o.y * TILE, '❤️'); return;
       case 'haendler': openTrader(); return;
+      case 'sonnenfeld': tapInfo(x, y, 'Nach Sonnenfeld', 'Die Stadt kommt bald'); return;
       case 'steg': case 'see': if (G.level < POND.level) tapInfo(x, y, 'See & Angelsteg', 'Angeln ab Level ' + POND.level); else { openPond(); sfx('click'); } return;
       case 'boot': if (G.level < BOAT.level) tapInfo(x, y, 'Ruderboot', 'Freigeschaltet ab Level ' + BOAT.level); else { openPond(true); sfx('click'); } return;
       case 'bergwerk': if (G.level < MINE.level) tapInfo(x, y, 'Altes Bergwerk', 'Freigeschaltet ab Level ' + MINE.level); else { openMinePanel(); sfx('click'); } return;

@@ -53,7 +53,9 @@ const availW = () => Math.max(50, stage.w - stage.l - stage.r);
 const availH = () => Math.max(50, stage.h - stage.t - stage.b);
 // Mitte des freien Bereichs (Bildschirm-Koordinaten der Leinwand)
 const availCenter = () => ({ x: stage.l + availW() / 2, y: stage.t + availH() / 2 });
-const minZoom = () => Math.min(availW() / WORLD_W, availH() / WORLD_H);
+// ganz herausgezoomt füllt die Karte trotzdem den ganzen Bildschirm (keine Ränder)
+const MGP = SCENE_MARGIN * TILE; // Landschafts-Rand außerhalb der Karte (Pixel)
+const minZoom = () => Math.max(availW() / WORLD_W, availH() / WORLD_H, stage.w / (WORLD_W + 2 * MGP), stage.h / (WORLD_H + 2 * MGP));
 const maxZoom = () => Math.max(minZoom(), 1.5);
 
 // Kamera zeigt Hofplatz + eigenes Land (+ etwas Rand, damit man die Nachbar-Schilder sieht)
@@ -72,11 +74,13 @@ function autoCam() { const v = autoView(); cam.x = v.x; cam.y = v.y; cam.z = v.z
 
 function applyCam() {
   cam.z = Math.min(maxZoom(), Math.max(minZoom(), cam.z));
-  const hw = availW() / 2 / cam.z, hh = availH() / 2 / cam.z;
-  cam.x = WORLD_W <= hw * 2 ? WORLD_W / 2 : Math.min(WORLD_W - hw, Math.max(hw, cam.x));
-  cam.y = WORLD_H <= hh * 2 ? WORLD_H / 2 : Math.min(WORLD_H - hh, Math.max(hh, cam.y));
+  // Die Karte füllt den freien Bereich zwischen den Leisten; unter den Leisten liegt der Landschafts-Rand – nie leerer Hintergrund
+  const c = availCenter(), hw = availW() / 2 / cam.z, hh = availH() / 2 / cam.z;
+  const x0 = Math.max(hw, c.x / cam.z - MGP), x1 = Math.min(WORLD_W - hw, WORLD_W + MGP - (stage.w - c.x) / cam.z);
+  const y0 = Math.max(hh, c.y / cam.z - MGP), y1 = Math.min(WORLD_H - hh, WORLD_H + MGP - (stage.h - c.y) / cam.z);
+  cam.x = x0 > x1 ? (x0 + x1) / 2 : Math.min(x1, Math.max(x0, cam.x));
+  cam.y = y0 > y1 ? (y0 + y1) / 2 : Math.min(y1, Math.max(y0, cam.y));
   view.scale = cam.z;
-  const c = availCenter();
   view.ox = c.x - cam.x * cam.z;
   view.oy = c.y - cam.y * cam.z;
 }
@@ -173,7 +177,7 @@ function draw(time) {
   const vr = visibleRect();
   // Pixel-Grafik: scharfe Pixel, nur beim starken Verkleinern weich (sonst flimmert es)
   ctx.imageSmoothingEnabled = s < 0.9;
-  ctx.drawImage(groundCv, 0, 0, WORLD_W, WORLD_H);
+  ctx.drawImage(groundCv, -MGP, -MGP);
   drawParcels();
   drawPaths();
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) drawCrop(x, y, T);
@@ -204,7 +208,7 @@ let groundCv = null;
 function buildGround() {
   if (!atlasReady || !SCN.ready) return;
   const cv = document.createElement('canvas');
-  cv.width = WORLD_W; cv.height = WORLD_H;
+  cv.width = WORLD_W + 2 * MGP; cv.height = WORLD_H + 2 * MGP;
   const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
   SCN.buildScene(g);
   groundCv = cv;
@@ -233,7 +237,7 @@ function farmObjects(list, T) {
   // Auto auf dem Stellplatz
   if (G.car.cur) { const vc = SCN.vehicleCanvas(G.car.cur); add(12.9 * TILE, () => ctx.drawImage(vc, Math.round(6 * TILE - vc.width / 2), Math.round(12.9 * TILE - vc.height))); }
   // Wanderhändler mit Karren
-  add(14.85 * TILE, () => { spr(ctx, 'karren', 0, 12.4 * TILE, 14.95 * TILE); spr(ctx, 'haendler', Math.floor(T * 6), 10.9 * TILE, 14.85 * TILE); });
+  add(14.85 * TILE, () => { spr(ctx, 'karren', 0, 12.4 * TILE, 14.95 * TILE); spr(ctx, 'buerger3_runter', 0, 10.9 * TILE, 14.85 * TILE); }); // Händler mit ganzem Körper (vorher nur Kopf vom Marktstand)
   // Krähen um die erste Vogelscheuche
   const sc = Object.values(G.deco).find((d) => d.t === 'vogelscheuche');
   if (sc) for (let i = 0; i < 3; i++) {
@@ -333,17 +337,25 @@ function drawPaths() {
     if (!same(-1, 0)) ctx.fillRect(x, y, 2, TILE); if (!same(1, 0)) ctx.fillRect(x + TILE - 2, y, 2, TILE);
   }
 }
-const decoFoot = (d) => ({ x: (d.x + decoW(d.t) / 2) * TILE, y: (d.y + decoH(d.t)) * TILE - 4 });
+// Jedes Deko-Bild passt ganz in seine w × h Felder: zu große Bilder werden verkleinert, unten mittig ausgerichtet.
+const decoScale = (id) => { const r = DSPR[DECO[id].spr]; return r ? Math.min(1, decoW(id) * TILE / r[2], decoH(id) * TILE / r[3]) : 1; };
+const decoFoot = (d) => {
+  const r = DSPR[DECO[d.t].spr], room = r ? decoH(d.t) * TILE - r[3] * decoScale(d.t) : 4;
+  return { x: (d.x + decoW(d.t) / 2) * TILE, y: (d.y + decoH(d.t)) * TILE - Math.max(0, Math.min(4, room)) };
+};
 function drawDeco(d, T, alpha = 1) {
   const def = DECO[d.t], k = decoKind(d.t);
   if (k === 'fence') { drawFence(d, alpha); return; }
   const f = decoFoot(d);
   if (def.atlas) { if (alpha !== 1) ctx.globalAlpha = alpha; spr(ctx, def.atlas, 0, f.x, f.y); ctx.globalAlpha = 1; return; }
-  SCN.dspr(ctx, def.spr, f.x, f.y, false, alpha);
+  const s = decoScale(d.t);
+  ctx.save(); ctx.translate(f.x, f.y); if (s !== 1) ctx.scale(s, s);
+  SCN.dspr(ctx, def.spr, 0, 0, false, alpha);
   if (k === 'sign' && d.text) {
-    const r = DSPR[def.spr]; const x0 = Math.round(f.x - r[2] / 2), y0 = Math.round(f.y - r[3]);
-    SCN.pixelText(ctx, d.text, x0 + def.text[0], y0 + def.text[1], def.text[2]);
+    const r = DSPR[def.spr], x0 = Math.round(-r[2] / 2), y0 = -r[3], bx = DSIGN[def.spr];
+    if (bx) SCN.pixelTextBox(ctx, d.text, x0 + bx[0], y0 + bx[1], bx[2], bx[3], def.text[2]);
   }
+  ctx.restore();
 }
 const luma = (h) => { const n = parseInt(h.slice(1), 16); return (n >> 16) * 0.3 + ((n >> 8) & 255) * 0.59 + (n & 255) * 0.11; };
 function drawFence(d, alpha = 1) {
@@ -373,8 +385,9 @@ function drawFence(d, alpha = 1) {
 function drawDecoLights(T) {
   for (const d of Object.values(G.deco)) {
     const L = DECO[d.t].light; if (!L) continue;
-    const f = decoFoot(d), r = DSPR[DECO[d.t].spr]; if (!r) continue;
-    const top = f.y - r[3];
+    const f0 = decoFoot(d), r = DSPR[DECO[d.t].spr]; if (!r) continue;
+    const s = decoScale(d.t); ctx.save(); ctx.translate(f0.x, f0.y); if (s !== 1) ctx.scale(s, s);
+    const f = { x: 0, y: 0 }, top = -r[3]; // ab hier in Bild-Koordinaten (passt zur Verkleinerung)
     if (L === 'flame') {
       const fy = d.t === 'fackel' ? top + 18 : top + 22;
       SCN.danim(ctx, 'flamme', Math.floor(T * 10 + d.id), f.x, fy);
@@ -390,6 +403,7 @@ function drawDecoLights(T) {
         if (Math.sin(T * 3 + i * 1.9) > 0) { ctx.fillStyle = 'rgba(232,255,122,0.95)'; ctx.fillRect(Math.round(fx), Math.round(fy), 2, 2); }
       }
     }
+    ctx.restore();
   }
 }
 

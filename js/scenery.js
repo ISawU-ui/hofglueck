@@ -4,6 +4,8 @@
 'use strict';
 const SCN = (() => {
   const T = TILE, W = MAP_W + (TOWN_ON ? TOWN_W : 0), H = MAP_H;
+  // Rand außerhalb der Karte (Felder): Landschaft läuft weiter, damit man nie den leeren Hintergrund sieht
+  const MG = SCENE_MARGIN;
   // Deko-Atlas (js/deko.js): Deko, Bäume, Felsen, Boot, Tier-Animationen, Pixel-Schrift
   const DATL = new Image(); let dReady = false;
   const readyCbs = [];
@@ -28,10 +30,18 @@ const SCN = (() => {
     else g.drawImage(DATL, sx, sy, w, h, dx, dy, w, h);
     return true;
   }
+  // Text genau mittig in ein Rechteck (Schildfläche): waagerecht nach Tinte, senkrecht nach Großbuchstaben-Höhe
+  function pixelTextBox(g, s, bx, by, bw, bh, color) {
+    s = String(s || '').trim(); if (!s) return;
+    const c = DFONT.c; let x = 0, i0 = 0, i1 = 0;
+    [...s].forEach((ch, i) => { const e = c[ch]; if (i === 0) i0 = e ? e[2] : 0; i1 = x + (e ? e[3] : 4); x += (e ? e[1] : 4) + 1; });
+    const ox = Math.round(bx + (bw - (i1 - i0)) / 2 - i0), oy = Math.round(by + (bh - (DFONT.base - DFONT.top)) / 2 - DFONT.top);
+    pixelText(g, s, ox + x / 2, oy, color, true);
+  }
   // Pixel-Schrift für eigene Schildtexte (zentriert um cx, oben bei y)
-  function pixelText(g, s, cx, y, color) {
+  function pixelText(g, s, cx, y, color, exact = false) {
     const c = DFONT.c; let w = 0; for (const ch of s) w += (c[ch] ? c[ch][1] : 4) + 1;
-    let x = Math.round(cx - w / 2);
+    let x = exact ? Math.round(cx - w / 2 + 0.01) : Math.round(cx - w / 2);
     const tmp = pixelText.cv || (pixelText.cv = document.createElement('canvas'));
     tmp.width = Math.max(1, w); tmp.height = DFONT.h; const tg = tmp.getContext('2d');
     tg.clearRect(0, 0, tmp.width, tmp.height);
@@ -42,6 +52,20 @@ const SCN = (() => {
 
 
 
+  // Felder, auf denen die Landschaft steht (Wald, See, Berg, Schilf, Wegweiser) – dort keine Deko
+  let BL = null;
+  const markT = (tx, ty) => { if (BL && tx >= 0 && ty >= 0 && tx < MAP_W && ty < MAP_H) BL[ty * MAP_W + tx] = 1; };
+  const markPx = (x, y) => markT(Math.floor(x / T), Math.floor(y / T));
+  function blockedAt(tx, ty) {
+    if (!BL) { const c = document.createElement('canvas'); c.width = c.height = 1; try { buildScene(c.getContext('2d')); } catch (e) { /* ohne Grafik: nur Grundregeln */ } }
+    if (!BL) return false;
+    return !!BL[ty * MAP_W + tx];
+  }
+  // Wasser (See + Wasserfall-Becken): einzige Landschaft, auf der keine Deko stehen darf
+  function waterAt(tx, ty) {
+    for (const [a, b] of [[0.5, 0.5], [0.15, 0.15], [0.85, 0.15], [0.15, 0.85], [0.85, 0.85]]) if (lakeV((tx + a) * T, (ty + b) * T) > 0.06) return true;
+    return false;
+  }
   let seed = 1;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const R = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); };
@@ -76,7 +100,7 @@ const SCN = (() => {
     R(g, r.x * T, (r.y + r.h) * T - 2, r.w * T, 2, 'rgba(60,40,20,.35)');
   }
   function lake(g) {
-    for (let y = 15 * T; y < H * T; y += 4) for (let x = 0; x < 19 * T; x += 4) {
+    for (let y = 15 * T; y < (H + MG) * T; y += 4) for (let x = -MG * T; x < 19 * T; x += 4) {
       const v = lakeV(x + 2, y + 2) + (rnd() - 0.5) * 0.03;
       if (v > 0.06) R(g, x, y, 4, 4, v > 0.55 ? '#4b66ad' : v > 0.22 ? '#5472bc' : '#6b8bd0');
       else if (v > -0.06) R(g, x, y, 4, 4, rnd() < 0.2 ? '#cbb27c' : '#d9c38f');
@@ -89,9 +113,9 @@ const SCN = (() => {
     seed = 77;
     for (let k = 0; k < TER.length; k++) {
       const t = TER[k];
-      for (let x = MX - 2 * T; x < MAP_W * T; x += 4) {
+      for (let x = MX - 2 * T; x < (W + MG) * T; x += 4) {
         const yb = t.base(x), yTop = yb - t.ch;
-        for (let y = 0; y < yb; y += 4) {
+        for (let y = -MG * T; y < yb; y += 4) {
           if (x < t.x0 + slope(k, y)) continue;
           const edge = x - (t.x0 + slope(k, y));
           if (y >= yTop) { // Felswand
@@ -131,35 +155,32 @@ const SCN = (() => {
   }
 
   // ---------- eigene Pixel-Objekte ----------
-  // Hundehütte: Satteldach mit Schindeln, Holzbretter, Namensschild, Napf, Knochen, Matte
+  // Hundehütte in schräger Draufsicht: Giebel vorne, Dachflächen von oben, Bretterwand, Namensschild, Napf, Knochen, Matte
+  let dogCv = null;
+  function dogHouseGrid() {
+    const G = grid(48, 50), cx = 24, wy = 26, x0 = 10, x1 = 38, gy = 44;
+    grect(G, x0, wy, x1 - x0, gy - wy, '#c48a52');
+    for (let y = wy + 3; y < gy; y += 5) { grect(G, x0, y, x1 - x0, 1, '#8a5a32'); grect(G, x0, y + 1, x1 - x0, 1, '#d9a36a'); }
+    grect(G, x0, wy, x1 - x0, 2, '#8a5a32');
+    const r = gableRoof(G, x0 - 4, x1 + 3, wy + 2, cx, 13, 11, ROOF_COL.rot, '#5d3a1a');
+    gpoly(G, [[x0, wy + 1], [cx, r.ya + 3], [x1, wy + 1]], '#c48a52');
+    r.fascia();
+    // Eingang (Rundbogen) + Kissen
+    grect(G, cx - 7, wy + 9, 14, gy - wy - 9, '#2a170b'); grect(G, cx - 6, wy + 7, 12, 2, '#2a170b'); grect(G, cx - 4, wy + 6, 8, 1, '#2a170b');
+    grect(G, cx - 5, gy - 4, 10, 4, '#b8462f'); grect(G, cx - 4, gy - 4, 8, 1, '#d9604a');
+    grect(G, cx - 6, wy + 1, 12, 4, '#ecd9a6'); for (let i = 0; i < 4; i++) gset(G, cx - 4 + i * 2, wy + 3, '#5d3a1a'); // Namensschild
+    goutline(G);
+    return G;
+  }
   function dogHouse(g, x, y) {
-    const a = Math.round(x - 22), b = Math.round(y - 46);
-    R(g, a + 2, b + 42, 46, 5, 'rgba(0,0,0,.2)');
-    R(g, a + 9, b + 43, 26, 4, '#5f86c9'); for (let i = 0; i < 26; i += 4) R(g, a + 9 + i, b + 43, 2, 4, '#4a6fae');
-    const wl = a + 6, wr = a + 38, wy = b + 20, wb = b + 43;
-    R(g, wl, wy, wr - wl, wb - wy, '#c48a52');
-    for (let yy = wy + 3; yy < wb; yy += 5) { R(g, wl, yy, wr - wl, 1, '#8a5a32'); R(g, wl, yy + 1, wr - wl, 1, '#d9a36a'); }
-    for (let r = 0; r < 14; r++) { const half = Math.round(r * 1.15); R(g, a + 22 - half, wy - 14 + r, half * 2, 1, '#c48a52'); }
-    R(g, wl - 1, wy, 1, wb - wy, '#3b2412'); R(g, wr, wy, 1, wb - wy, '#3b2412'); R(g, wl - 1, wb, wr - wl + 2, 1, '#3b2412');
-    R(g, a + 15, b + 30, 14, 13, '#2a170b'); R(g, a + 16, b + 28, 12, 2, '#2a170b'); R(g, a + 18, b + 27, 8, 1, '#2a170b');
-    R(g, a + 14, b + 29, 1, 14, '#5d3a1a'); R(g, a + 29, b + 29, 1, 14, '#5d3a1a');
-    R(g, a + 17, b + 39, 10, 4, '#b8462f'); R(g, a + 18, b + 39, 8, 1, '#d9604a');
-    R(g, a + 15, b + 21, 14, 5, '#ecd9a6'); R(g, a + 15, b + 21, 14, 1, '#8a5a32'); R(g, a + 15, b + 25, 14, 1, '#8a5a32');
-    for (let i = 0; i < 5; i++) R(g, a + 17 + i * 2, b + 23, 1, 1, '#5d3a1a');
-    for (let r = 0; r < 20; r++) {
-      const half = 4 + Math.round(r * 1.15), y0 = b + 2 + r;
-      for (let side = -1; side <= 1; side += 2) {
-        for (let t = 0; t < 7; t++) {
-          const xx = a + 22 + side * (half - t);
-          const shade = ((r + t) % 4 === 0) ? '#8f3423' : (t === 0 ? '#e06a4c' : (side > 0 ? '#a83c28' : '#c24d33'));
-          R(g, xx, y0, 1, 1, shade);
-        }
-        R(g, a + 22 + side * (half + 1), y0, 1, 1, '#3b2412');
-      }
-    }
-    R(g, a + 20, b, 4, 4, '#7a2a1a'); R(g, a + 21, b - 1, 2, 1, '#3b2412');
-    R(g, a + 40, b + 38, 11, 5, '#3a74c4'); R(g, a + 41, b + 37, 9, 2, '#8b5a2b'); R(g, a + 42, b + 36, 2, 1, '#a8774a'); R(g, a + 46, b + 36, 2, 1, '#a8774a'); R(g, a + 40, b + 43, 11, 1, '#22457a');
-    R(g, a - 4, b + 40, 9, 2, '#f3ecd9'); R(g, a - 5, b + 39, 2, 2, '#f3ecd9'); R(g, a - 5, b + 41, 2, 2, '#f3ecd9'); R(g, a + 4, b + 39, 2, 2, '#f3ecd9'); R(g, a + 4, b + 41, 2, 2, '#f3ecd9');
+    if (!dogCv) dogCv = canvasOf(dogHouseGrid());
+    const a = Math.round(x - 24), b = Math.round(y - 46);
+    g.fillStyle = 'rgba(0,0,0,.2)'; g.beginPath(); g.ellipse(x, y - 1, 22, 4, 0, 0, Math.PI * 2); g.fill();
+    R(g, a + 11, b + 44, 26, 4, '#5f86c9'); for (let i = 0; i < 26; i += 4) R(g, a + 11 + i, b + 44, 2, 4, '#4a6fae'); // Matte
+    g.drawImage(dogCv, a, b - 2);
+    // Napf (von oben: Rand + Futter) und Knochen
+    R(g, a + 42, b + 40, 11, 6, '#22457a'); R(g, a + 42, b + 39, 11, 5, '#3a74c4'); R(g, a + 43, b + 40, 9, 3, '#8b5a2b'); R(g, a + 44, b + 40, 2, 1, '#a8774a');
+    R(g, a - 3, b + 42, 9, 2, '#f3ecd9'); R(g, a - 4, b + 41, 2, 2, '#f3ecd9'); R(g, a - 4, b + 43, 2, 2, '#f3ecd9'); R(g, a + 5, b + 41, 2, 2, '#f3ecd9'); R(g, a + 5, b + 43, 2, 2, '#f3ecd9');
   }
   // Katzenbaum: Sockel, Sisal-Stämme, Höhlenhaus mit Spitzdach, Liegebrett mit Kissen, Spielball
   function catTree(g, x, y) {
@@ -237,6 +258,7 @@ const SCN = (() => {
   function signpost(g, x, y, s) {
     g.font = '800 13px Nunito, system-ui, sans-serif'; g.textAlign = 'center';
     const w = Math.round(g.measureText(s).width) + 26, bx = Math.round(x - w / 2), by = Math.round(y - 52);
+    for (let px = bx; px <= bx + w; px += T / 2) markPx(px, by + 10); markPx(x, y - 2);
     R(g, x - 2, by, 5, 52, '#5d3a1a'); R(g, x - 1, by, 1, 52, '#7a4b25');
     g.fillStyle = '#3b2412'; g.beginPath(); g.moveTo(bx - 1, by - 1); g.lineTo(bx + w - 9, by - 1); g.lineTo(bx + w + 1, by + 10); g.lineTo(bx + w - 9, by + 21); g.lineTo(bx - 1, by + 21); g.closePath(); g.fill();
     g.fillStyle = '#c99a5e'; g.beginPath(); g.moveTo(bx + 1, by + 1); g.lineTo(bx + w - 10, by + 1); g.lineTo(bx + w - 2, by + 10); g.lineTo(bx + w - 10, by + 19); g.lineTo(bx + 1, by + 19); g.closePath(); g.fill();
@@ -298,87 +320,137 @@ const SCN = (() => {
   const GLASS = '#9cc6ec', GLASS2 = '#d6ecff';
   function glassShine(G, x, y) { gset(G, x, y, GLASS2); gset(G, x + 1, y, GLASS2); gset(G, x, y + 1, GLASS2); }
 
-  // --- Fahrzeuge (Seitenansicht, fährt nach rechts) ---
+  // --- Fahrzeuge: schräg von vorne-oben (stehen auf dem Stellplatz mit der Schnauze zur Straße) ---
+  // Wie die CraftPix-Grafiken: man sieht Dach und Motorhaube von oben, darunter die Front.
+  function carBody(G, o) {
+    const { cx, c, d, l, bw, rw, yRoof, yWin, yHood, yFront, yBot } = o;
+    // Räder (hinten schauen sie seitlich unter der Karosserie hervor, vorne unten an den Ecken)
+    const wh = o.wheelH || 9;
+    for (const s of [-1, 1]) {
+      grect(G, cx + s * (bw / 2) - (s < 0 ? 2 : 3), yWin - 2, 5, wh, '#1f1f1f');
+      grect(G, cx + s * (bw / 2) - (s < 0 ? 3 : 4), yBot - wh, 7, wh + 1, '#1f1f1f');
+      grect(G, cx + s * (bw / 2) - (s < 0 ? 2 : 3), yBot - wh + 1, 5, 2, '#3a3a3a');
+    }
+    // Karosserie-Seiten (schmal sichtbar) + Heck oben
+    gpoly(G, [[cx - rw / 2 - 1, yRoof - 2], [cx + rw / 2 + 1, yRoof - 2], [cx + bw / 2, yHood], [cx + bw / 2, yBot - 2], [cx - bw / 2, yBot - 2], [cx - bw / 2, yHood]], d);
+    // Dach von oben
+    gpoly(G, [[cx - rw / 2 + 2, yRoof], [cx + rw / 2 - 2, yRoof], [cx + rw / 2, yRoof + 2], [cx + rw / 2, yWin], [cx - rw / 2, yWin], [cx - rw / 2, yRoof + 2]], c);
+    grect(G, cx - rw / 2 + 2, yRoof + 1, rw - 4, 1, l); grect(G, cx - rw / 2 + 1, yWin - 1, rw - 2, 1, d);
+    // Windschutzscheibe (Trapez)
+    gpoly(G, [[cx - rw / 2, yWin], [cx + rw / 2, yWin], [cx + bw / 2 - 3, yHood], [cx - bw / 2 + 3, yHood]], GLASS);
+    for (let i = 0; i < 4; i++) gset(G, cx - rw / 2 + 4 + i, yWin + 1 + i, GLASS2);
+    for (let i = 0; i < 3; i++) gset(G, cx - rw / 2 + 9 + i, yWin + 1 + i, GLASS2);
+    grect(G, cx - 1, yWin, 2, 1, '#3a3a3a'); // Innenspiegel
+    // Spiegel
+    grect(G, cx - bw / 2 - 3, yHood - 3, 4, 3, c); grect(G, cx + bw / 2 - 1, yHood - 3, 4, 3, c);
+    // Motorhaube von oben
+    gpoly(G, [[cx - bw / 2 + 2, yHood], [cx + bw / 2 - 2, yHood], [cx + bw / 2, yFront], [cx - bw / 2, yFront]], c);
+    grect(G, cx - bw / 2 + 2, yHood, bw - 4, 1, l);
+    for (let y = yHood + 2; y < yFront - 1; y++) { gset(G, cx - 6, y, l); gset(G, cx + 5, y, d); }
+    // Front: Kühlergrill, Scheinwerfer, Stoßstange
+    grect(G, cx - bw / 2, yFront, bw, yBot - yFront - 3, d);
+    grect(G, cx - bw / 2, yFront, bw, 1, l);
+    grect(G, cx - 9, yFront + 2, 18, 4, '#2a2a2a'); for (let x = cx - 8; x < cx + 9; x += 2) grect(G, x, yFront + 2, 1, 4, '#4a4a4a');
+    grect(G, cx - bw / 2 + 2, yFront + 2, 6, 3, '#fff3b0'); grect(G, cx + bw / 2 - 8, yFront + 2, 6, 3, '#fff3b0');
+    gset(G, cx - bw / 2 + 3, yFront + 2, '#ffffff'); gset(G, cx + bw / 2 - 7, yFront + 2, '#ffffff');
+    grect(G, cx - bw / 2 - 1, yBot - 4, bw + 2, 3, o.bumper || '#a5a5a5'); grect(G, cx - bw / 2 - 1, yBot - 4, bw + 2, 1, '#d6d6d6');
+    grect(G, cx - 6, yBot - 4, 12, 3, '#efe6c8'); grect(G, cx - 5, yBot - 3, 10, 1, '#3a3a3a'); // Nummernschild
+  }
   function vehicle(kind) {
-    const G = grid(68, 34), b = 28; // b = Unterkante der Räder
+    const G = grid(60, 64), cx = 30, b = 60;
     if (kind === 'quad') {
       const c = '#c63d2f', d = '#8e2a20', l = '#e86a55';
-      grect(G, 14, b - 9, 26, 3, '#3a3a3a');
-      grect(G, 4, b - 17, 15, 2, '#4a4a4a'); grect(G, 6, b - 15, 2, 4, '#4a4a4a'); grect(G, 15, b - 15, 2, 4, '#4a4a4a');
-      grect(G, 6, b - 24, 11, 7, '#b5834f'); grect(G, 6, b - 21, 11, 1, '#7a5230'); grect(G, 6, b - 24, 11, 1, '#d9a56b');
-      gpoly(G, [[3, b - 9], [6, b - 15], [18, b - 15], [21, b - 9]], c);
-      gpoly(G, [[33, b - 9], [36, b - 15], [46, b - 15], [50, b - 9]], c);
-      gpoly(G, [[17, b - 10], [19, b - 16], [33, b - 16], [37, b - 12], [33, b - 9], [18, b - 9]], c);
-      grect(G, 19, b - 16, 14, 1, l); grect(G, 6, b - 15, 12, 1, l); grect(G, 36, b - 15, 10, 1, l);
-      grect(G, 15, b - 19, 14, 3, '#2d2d2d'); grect(G, 16, b - 19, 12, 1, '#555555');
-      grect(G, 34, b - 23, 2, 7, '#2d2d2d'); grect(G, 31, b - 24, 8, 2, '#2d2d2d'); grect(G, 30, b - 24, 2, 2, '#555555');
-      grect(G, 47, b - 14, 2, 3, '#fff3b0'); grect(G, 3, b - 13, 2, 2, '#d9443a');
-      gswap(G, 0, b - 11, 68, 2, c, d);
-      wheel(G, 12, b - 6.5, 5.6, { tread: true }); wheel(G, 41, b - 6.5, 5.6, { tread: true });
+      for (const s of [-1, 1]) { grect(G, cx + s * 17 - 4, 14, 8, 12, '#1f1f1f'); grect(G, cx + s * 17 - 4, b - 16, 9, 14, '#1f1f1f'); for (let y = b - 15; y < b - 2; y += 3) grect(G, cx + s * 17 - 4, y, 9, 1, '#3a3a3a'); }
+      gpoly(G, [[cx - 22, 18], [cx + 22, 18], [cx + 20, 26], [cx - 20, 26]], c); // hinterer Kotflügel
+      grect(G, cx - 14, 6, 28, 12, '#b5834f'); grect(G, cx - 14, 6, 28, 2, '#d9a56b'); for (let x = cx - 12; x < cx + 13; x += 6) grect(G, x, 8, 1, 10, '#7a5230'); // Kiste hinten
+      grect(G, cx - 18, 17, 36, 2, '#4a4a4a');
+      gpoly(G, [[cx - 7, 22], [cx + 7, 22], [cx + 9, 36], [cx - 9, 36]], '#2d2d2d'); grect(G, cx - 6, 23, 12, 2, '#555555'); // Sitz
+      gpoly(G, [[cx - 12, 34], [cx + 12, 34], [cx + 14, b - 18], [cx - 14, b - 18]], c); grect(G, cx - 11, 34, 22, 1, l); // Tank/Haube
+      gpoly(G, [[cx - 24, b - 20], [cx + 24, b - 20], [cx + 22, b - 12], [cx - 22, b - 12]], c); grect(G, cx - 22, b - 20, 44, 1, l); // vorderer Kotflügel
+      grect(G, cx - 20, 33, 40, 2, '#2d2d2d'); grect(G, cx - 22, 32, 4, 3, '#555555'); grect(G, cx + 18, 32, 4, 3, '#555555'); // Lenker
+      grect(G, cx - 14, b - 14, 28, 3, '#3a3a3a'); for (let x = cx - 13; x < cx + 14; x += 4) grect(G, x, b - 14, 1, 3, '#6a6a6a'); // Gepäckgitter vorne
+      grect(G, cx - 9, b - 11, 5, 3, '#fff3b0'); grect(G, cx + 4, b - 11, 5, 3, '#fff3b0');
+      gswap(G, 0, b - 13, 60, 2, c, d);
     } else if (kind === 'kombi') {
-      const c = '#4a7fc1', d = '#355f94', l = '#79a6dd';
-      gcirc(G, 14, b - 5, 7, '#1b1b1b'); gcirc(G, 49, b - 5, 7, '#1b1b1b');
-      gpoly(G, [[2, b - 3], [2, b - 12], [5, b - 14], [50, b - 14], [58, b - 12], [60, b - 9], [60, b - 3]], c);
-      gpoly(G, [[4, b - 14], [6, b - 23], [37, b - 23], [46, b - 14]], c);
-      gpoly(G, [[7, b - 15], [8, b - 21], [20, b - 21], [20, b - 15]], GLASS); gpoly(G, [[22, b - 15], [22, b - 21], [35, b - 21], [42, b - 15]], GLASS);
-      glassShine(G, 10, b - 20); glassShine(G, 25, b - 20);
-      grect(G, 6, b - 24, 30, 1, '#5a5a5a'); grect(G, 9, b - 25, 2, 1, '#5a5a5a'); grect(G, 31, b - 25, 2, 1, '#5a5a5a');
-      grect(G, 5, b - 14, 46, 1, l); grect(G, 7, b - 23, 29, 1, l);
-      grect(G, 21, b - 14, 1, 10, d); grect(G, 16, b - 11, 3, 1, d); grect(G, 32, b - 11, 3, 1, d);
-      gswap(G, 0, b - 6, 68, 3, c, d);
-      grect(G, 58, b - 11, 2, 2, '#fff3b0'); grect(G, 2, b - 11, 2, 3, '#d9443a');
-      grect(G, 1, b - 5, 4, 2, '#a5a5a5'); grect(G, 57, b - 5, 4, 2, '#a5a5a5');
-      wheel(G, 14, b - 5, 5); wheel(G, 49, b - 5, 5);
+      carBody(G, { cx, c: '#4a7fc1', d: '#355f94', l: '#79a6dd', bw: 42, rw: 34, yRoof: 3, yWin: 24, yHood: 34, yFront: 47, yBot: b });
+      grect(G, cx - 15, 2, 30, 1, '#5a5a5a'); grect(G, cx - 15, 1, 2, 2, '#5a5a5a'); grect(G, cx + 13, 1, 2, 2, '#5a5a5a'); // Dachreling
     } else if (kind === 'suv') {
-      const c = '#5d7d3d', d = '#435c2b', l = '#83a35d', s = '#d8cfb4';
-      gcirc(G, 15, b - 6, 8, '#1b1b1b'); gcirc(G, 46, b - 6, 8, '#1b1b1b');
-      gpoly(G, [[4, b - 5], [4, b - 16], [50, b - 16], [55, b - 14], [56, b - 11], [56, b - 5]], c);
-      gpoly(G, [[5, b - 16], [6, b - 26], [38, b - 26], [44, b - 16]], c);
-      gpoly(G, [[8, b - 17], [8, b - 24], [21, b - 24], [21, b - 17]], GLASS); gpoly(G, [[23, b - 17], [23, b - 24], [36, b - 24], [41, b - 17]], GLASS);
-      glassShine(G, 10, b - 23); glassShine(G, 26, b - 23);
-      grect(G, 6, b - 28, 32, 1, '#3a3a3a'); for (const x of [8, 18, 28, 36]) grect(G, x, b - 27, 1, 1, '#3a3a3a');
-      grect(G, 9, b - 31, 10, 3, '#b5834f'); grect(G, 21, b - 30, 8, 2, '#4f6a8a');
-      grect(G, 5, b - 16, 46, 1, l); grect(G, 7, b - 26, 30, 1, l);
-      grect(G, 4, b - 10, 52, 3, s); grect(G, 22, b - 16, 1, 9, d); grect(G, 17, b - 13, 3, 1, d); grect(G, 34, b - 13, 3, 1, d);
-      gswap(G, 0, b - 7, 68, 2, c, d);
-      grect(G, 56, b - 14, 2, 9, '#4a4a4a'); grect(G, 54, b - 13, 2, 2, '#fff3b0'); grect(G, 4, b - 14, 2, 3, '#d9443a');
-      wheel(G, 3.5, b - 15, 4.3); wheel(G, 15, b - 6, 6, { tread: true }); wheel(G, 46, b - 6, 6, { tread: true });
+      carBody(G, { cx, c: '#5d7d3d', d: '#435c2b', l: '#83a35d', bw: 46, rw: 38, yRoof: 8, yWin: 26, yHood: 35, yFront: 46, yBot: b, wheelH: 11, bumper: '#3a3a3a' });
+      grect(G, cx - 17, 5, 34, 2, '#3a3a3a'); for (const x of [cx - 15, cx - 5, cx + 5, cx + 14]) grect(G, x, 5, 1, 6, '#3a3a3a'); // Dachträger
+      grect(G, cx - 12, 1, 14, 6, '#b5834f'); grect(G, cx - 12, 1, 14, 1, '#d9a56b'); grect(G, cx + 4, 2, 9, 5, '#4f6a8a'); // Gepäck
     } else if (kind === 'pickup') {
-      const c = '#b8352b', d = '#86251d', l = '#d9574a', cr = '#f1e2bf';
-      gcirc(G, 13, b - 5, 7.2, '#1b1b1b'); gcirc(G, 52, b - 5, 7.2, '#1b1b1b');
-      grect(G, 4, b - 22, 11, 8, '#e2c25c'); for (let y = b - 21; y < b - 14; y += 3) grect(G, 4, y, 11, 1, '#c29f3a'); grect(G, 4, b - 22, 11, 1, '#f3dc8a');
-      grect(G, 16, b - 21, 5, 7, '#c9ccd2'); grect(G, 17, b - 22, 3, 1, '#8d9097'); grect(G, 16, b - 18, 5, 1, '#9fa3ab');
-      grect(G, 22, b - 18, 5, 4, '#b5834f'); grect(G, 22, b - 18, 5, 1, '#d9a56b');
-      gpoly(G, [[2, b - 3], [2, b - 15], [28, b - 15], [28, b - 13], [44, b - 13], [58, b - 13], [62, b - 11], [63, b - 8], [63, b - 3]], c);
-      gpoly(G, [[28, b - 13], [29, b - 24], [40, b - 24], [46, b - 13]], c);
-      gpoly(G, [[31, b - 14], [31, b - 22], [39, b - 22], [43, b - 14]], GLASS); glassShine(G, 33, b - 21);
-      grect(G, 2, b - 15, 26, 2, cr); grect(G, 29, b - 24, 11, 1, l); grect(G, 44, b - 13, 15, 1, l);
-      grect(G, 2, b - 9, 61, 1, cr);
-      gswap(G, 0, b - 6, 68, 3, c, d);
-      grect(G, 61, b - 10, 2, 2, '#fff3b0'); grect(G, 62, b - 8, 2, 5, '#d8d8d8'); grect(G, 1, b - 6, 3, 3, '#d8d8d8'); grect(G, 2, b - 13, 2, 3, '#d9443a');
-      grect(G, 36, b - 11, 3, 1, d);
-      wheel(G, 13, b - 5, 5.2, { chrome: true }); wheel(G, 52, b - 5, 5.2, { chrome: true });
+      const c = '#b8352b', d = '#86251d', l = '#d9574a';
+      // Ladefläche hinter der Kabine (oben im Bild) mit Ladung
+      grect(G, cx - 21, 1, 42, 19, d); grect(G, cx - 18, 3, 36, 16, '#5a1a14');
+      grect(G, cx - 16, 4, 12, 9, '#e2c25c'); for (let y = 6; y < 13; y += 3) grect(G, cx - 16, y, 12, 1, '#c29f3a'); grect(G, cx - 16, 4, 12, 1, '#f3dc8a'); // Heuballen
+      grect(G, cx - 2, 5, 8, 9, '#c9ccd2'); grect(G, cx - 1, 5, 6, 2, '#8d9097'); // Milchkanne
+      grect(G, cx + 8, 7, 9, 7, '#b5834f'); grect(G, cx + 8, 7, 9, 1, '#d9a56b'); // Kiste
+      grect(G, cx - 21, 1, 42, 2, l);
+      carBody(G, { cx, c, d, l, bw: 44, rw: 34, yRoof: 19, yWin: 29, yHood: 37, yFront: 48, yBot: b, wheelH: 10, bumper: '#d8d8d8' });
     } else if (kind === 'oldtimer') {
-      const c = '#2f8a87', d = '#206563', l = '#56b3ae', cr = '#efe3c4', crd = '#d5c49c';
-      gpoly(G, [[2, b - 4], [2, b - 15], [25, b - 15], [25, b - 4]], c);
-      gcirc(G, 12, b - 4, 8.3, c); gcirc(G, 52, b - 4, 8.3, c);
-      gpoly(G, [[25, b - 4], [25, b - 15], [27, b - 22], [30, b - 25], [38, b - 25], [41, b - 22], [42, b - 15], [42, b - 4]], cr);
-      gpoly(G, [[42, b - 4], [42, b - 14], [56, b - 13], [61, b - 10], [62, b - 7], [62, b - 4]], c);
-      grect(G, 0, b - 6, 68, 6, null);
-      grect(G, 2, b - 15, 23, 1, l); grect(G, 42, b - 14, 14, 1, l); grect(G, 28, b - 25, 10, 1, '#fffaf0');
-      gpoly(G, [[28, b - 15], [29, b - 21], [31, b - 23], [37, b - 23], [39, b - 21], [40, b - 15]], GLASS); glassShine(G, 31, b - 22);
-      gswap(G, 25, b - 9, 17, 5, cr, crd);
-      grect(G, 20, b - 6, 26, 2, '#3a3a3a'); grect(G, 20, b - 6, 26, 1, '#5a5a5a');
-      grect(G, 3, b - 11, 21, 1, d); grect(G, 43, b - 9, 18, 1, d);
-      gcirc(G, 58, b - 11, 2, '#e6e6e6'); gcirc(G, 58, b - 11, 1.2, '#fff3b0');
-      grect(G, 62, b - 8, 2, 4, '#e6e6e6'); grect(G, 0, b - 8, 3, 4, '#e6e6e6'); grect(G, 2, b - 13, 2, 2, '#d9443a');
-      wheel(G, 12, b - 5, 5.2, { white: true, chrome: true }); wheel(G, 52, b - 5, 5.2, { white: true, chrome: true });
+      const c = '#2f8a87', d = '#206563', l = '#56b3ae', cr = '#efe3c4';
+      grect(G, cx - 19, 1, 38, 17, d); grect(G, cx - 16, 3, 32, 14, '#6b4423'); for (let x = cx - 14; x < cx + 16; x += 5) grect(G, x, 3, 1, 14, '#553418'); // Holz-Ladefläche
+      grect(G, cx - 12, 5, 10, 8, '#e2c25c'); grect(G, cx - 12, 5, 10, 1, '#f3dc8a');
+      grect(G, cx - 19, 1, 38, 2, l);
+      // runde Kotflügel vorne mit Weißwandreifen und runden Scheinwerfern
+      for (const s of [-1, 1]) {
+        grect(G, cx + s * 19 - 4, 18, 8, 10, '#1f1f1f');
+        grect(G, cx + s * 19 - 5, b - 12, 10, 12, '#1f1f1f'); grect(G, cx + s * 19 - 4, b - 11, 8, 2, '#f1efe8');
+        gcirc(G, cx + s * 18, b - 18, 8, c); grect(G, cx + s * 18 - 6, b - 26, 12, 2, l);
+        gcirc(G, cx + s * 17, b - 15, 3.2, '#e6e6e6'); gcirc(G, cx + s * 17, b - 15, 2, '#fff3b0');
+      }
+      gpoly(G, [[cx - 14, 18], [cx + 14, 18], [cx + 15, 20], [cx + 15, 28], [cx - 15, 28], [cx - 15, 20]], cr); grect(G, cx - 12, 19, 24, 1, '#fffaf0'); // Dach (creme)
+      gpoly(G, [[cx - 15, 28], [cx + 15, 28], [cx + 13, 34], [cx - 13, 34]], GLASS); for (let i = 0; i < 3; i++) gset(G, cx - 11 + i, 29 + i, GLASS2);
+      gpoly(G, [[cx - 11, 34], [cx + 11, 34], [cx + 10, b - 12], [cx - 10, b - 12]], c); grect(G, cx - 10, 34, 20, 1, l); gset(G, cx, 36, l);
+      for (let y = 36; y < b - 13; y++) { gset(G, cx - 5, y, d); gset(G, cx + 5, y, d); }
+      grect(G, cx - 7, b - 12, 14, 7, '#e6e6e6'); for (let x = cx - 6; x < cx + 7; x += 2) grect(G, x, b - 11, 1, 5, '#9a9a9a'); // Chrom-Grill
+      grect(G, cx - 22, b - 5, 44, 3, '#e6e6e6'); grect(G, cx - 22, b - 5, 44, 1, '#ffffff');
     }
     goutline(G);
+    // Schatten am Boden
+    for (let y = b - 1; y < b + 3; y++) for (let x = 6; x < 54; x++) if (!gget(G, x, y) && ((x - 30) / 25) ** 2 + ((y - b) / 3.5) ** 2 <= 1) gset(G, x, y, 'rgba(0,0,0,0.22)');
     return G;
   }
 
-  // --- Häuser (Vorderansicht) ---
+  // Farbe abdunkeln (für die Schattenseite des Dachs)
+  const darkHex = (h, f) => { const n = parseInt(h.slice(1), 16); return '#' + [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.max(0, Math.min(255, Math.round(v * f))).toString(16).padStart(2, '0')).join(''); };
+  // Satteldach mit dem Giebel nach vorne, in schräger Draufsicht (wie die CraftPix-Häuser):
+  // zwei Dachflächen laufen von den Traufen vorne nach hinten (oben im Bild), Schindelreihen parallel zur Giebelkante.
+  // xl/xr = Traufecken, ye = Traufhöhe vorne, cx = First, gH = Giebelhöhe, D = Tiefe nach hinten
+  function gableRoof(G, xl, xr, ye, cx, gH, D, rc, trim) {
+    const ya = ye - gH, RS = [darkHex(rc[0], 0.78), darkHex(rc[1], 0.8), darkHex(rc[2], 0.8)];
+    const edgeL = (x) => ye + (x - xl) * (ya - ye) / (cx - xl), edgeR = (x) => ye + (xr - x) * (ya - ye) / (xr - cx);
+    for (let x = xl; x <= xr; x++) {
+      const left = x < cx, e = left ? edgeL(x + 0.5) : edgeR(x + 0.5), P = left ? rc : RS;
+      for (let y = Math.floor(e - D); y <= Math.ceil(e); y++) {
+        const d = e - y; if (d < 0 || d > D) continue;
+        const dd = Math.floor(d), row = Math.floor(dd / 4);
+        let col = P[0];
+        if (dd % 4 === 3) col = P[1]; else if ((x + row * 3) % 6 === 0) col = P[1]; else if (dd % 4 === 0) col = P[2];
+        gset(G, x, y, col);
+      }
+    }
+    for (let y = Math.floor(ya - D); y <= ya; y++) { gset(G, cx - 1, y, rc[1]); gset(G, cx, y, RS[1]); } // First
+    return { ya, edgeL, edgeR, fascia() { // Giebelbretter vorne (nach dem Giebeldreieck zeichnen)
+      for (let x = xl; x <= xr; x++) { const e = x < cx ? edgeL(x + 0.5) : edgeR(x + 0.5); gset(G, x, Math.round(e), trim); gset(G, x, Math.round(e) - 1, x < cx ? rc[2] : RS[0]); }
+    } };
+  }
+  // Walmdach-Fläche (Traufe parallel zur Front), Schindelreihen waagerecht; Walm-Enden dunkler
+  function hipRoof(G, xl, xr, ye, D, inset, rc) {
+    const RS = [darkHex(rc[0], 0.78), darkHex(rc[1], 0.8), darkHex(rc[2], 0.8)];
+    for (let y = ye - D; y <= ye; y++) {
+      const d = ye - y, k = d / D, a = xl + inset * k, b = xr - inset * k;
+      for (let x = Math.floor(a); x <= Math.ceil(b); x++) {
+        const end = x < xl + inset * 1.6 * k + 2 || x > xr - inset * 1.6 * k - 2, P = end ? RS : rc, row = Math.floor(d / 4);
+        let col = P[0]; if (d % 4 === 3) col = P[1]; else if ((x + row * 3) % 6 === 0) col = P[1]; else if (d % 4 === 0) col = P[2];
+        gset(G, x, y, col);
+      }
+    }
+    for (let x = Math.ceil(xl + inset); x <= Math.floor(xr - inset); x++) gset(G, x, ye - D, rc[1]); // First
+  }
+  function chimneyAt(G, x, yb, h = 12) { grect(G, x, yb - h, 8, h, '#9a5a44'); grect(G, x, yb - h, 8, 3, '#b57a62'); grect(G, x - 1, yb - h - 1, 10, 2, '#6f3f30'); for (let y = yb - h + 5; y < yb; y += 3) grect(G, x, y, 8, 1, '#7f4a38'); grect(G, x + 6, yb - h + 3, 2, h - 3, '#7f4a38'); }
+
+  // --- Häuser (schräge Draufsicht wie Scheune & Hofladen) ---
   const HOUSE_COL = {
     weiss: ['#efe8da', '#d9d0bd'], gelb: ['#f0d78c', '#d8bb69'], salbei: ['#b9cfa3', '#9cb586'], rosa: ['#f0c2bd', '#d9a29c'], blau: ['#b7cbe6', '#97adcc'], holz: ['#b9834e', '#94643a'],
   };
@@ -420,18 +492,21 @@ const SCN = (() => {
     grect(G, x - 9, y, 18, 2, '#9a958c');
   }
   function house(o) {
-    const fh = 24, floors = o.floors, W0 = o.w, ov = 5;
-    const [wc, wd] = HOUSE_COL[o.wall], rc = ROOF_COL[o.roof];
-    const roofH = o.hip ? 30 : Math.round(W0 * 0.46);
+    const fh = 24, floors = o.floors, W0 = o.w, ov = 4;
+    const [wc, wd] = HOUSE_COL[o.wall], rc = ROOF_COL[o.roof], trim = o.trim;
     const wallH = floors * fh + 5;
-    const Gw = W0 + ov * 2 + 4, top = o.chimney ? 8 : 2;
-    const G = grid(Gw, top + roofH + wallH + 4);
-    const x0 = ov + 2, x1 = x0 + W0, cx = Math.floor(Gw / 2), wy = top + roofH - 4, gy = wy + wallH + 4;
+    const big = !!o.hip; // Landhaus: breites Walmdach + Zwerchgiebel; sonst Giebel nach vorne
+    const gH = big ? 0 : Math.round(W0 * 0.4), D = big ? 38 : (floors > 1 ? 27 : 24);
+    const top = big ? 14 : 4;
+    const Gw = W0 + ov * 2 + 4, x0 = ov + 2, x1 = x0 + W0, cx = Math.floor(Gw / 2);
+    const wy = top + D + gH, gy = wy + wallH + 4;
+    const G = grid(Gw, gy + 3);
     // Wand mit Putz, Ecken, Stockwerksbalken, Sockel
     grect(G, x0, wy, W0, wallH + 4, wc);
     seed = W0 * 7 + floors; for (let i = 0; i < W0 * wallH / 14; i++) gset(G, x0 + rnd() * W0, wy + rnd() * wallH, wd);
-    grect(G, x0, wy, 2, wallH, o.trim); grect(G, x1 - 2, wy, 2, wallH, o.trim);
-    for (let f = 1; f < floors; f++) grect(G, x0, gy - 5 - f * fh, W0, 2, o.trim);
+    grect(G, x0, wy, W0, 3, darkHex(wc, 0.8)); // Schatten unter der Traufe
+    grect(G, x0, wy, 2, wallH, trim); grect(G, x1 - 2, wy, 2, wallH, trim);
+    for (let f = 1; f < floors; f++) grect(G, x0, gy - 5 - f * fh, W0, 2, trim);
     grect(G, x0, gy - 5, W0, 5, '#8e8a84'); for (let x = x0; x < x1; x += 6) gset(G, x, gy - 3, '#6f6b66'); grect(G, x0, gy - 5, W0, 1, '#a8a49d');
     // Fenster und Tür
     const nWin = Math.max(2, Math.floor(W0 / 24));
@@ -444,31 +519,34 @@ const SCN = (() => {
       }
     }
     doorAt(G, cx, gy - 5, o.door);
-    // Veranda (amerikanischer Vorbau): Dach über dem Erdgeschoss, Pfosten, Geländer, Holzboden, Stufen
+    // Dach
+    if (!big) {
+      const r = gableRoof(G, x0 - ov, x1 + ov - 1, wy + 2, cx, gH, D, rc, trim);
+      gpoly(G, [[x0, wy + 1], [cx, r.ya + 3], [x1, wy + 1]], wc); // Giebeldreieck (Wand)
+      for (let y = Math.round(r.ya + 6); y < wy; y += 4) for (let x = x0; x < x1; x++) if (gget(G, x, y) === wc && (x + y) % 9 === 0) gset(G, x, y, wd);
+      if (floors > 1) windowAt(G, cx - 5, Math.round(r.ya + gH * 0.42), 'klein', o.winTrim || '#f3ecd9', wd);
+      else { gcirc(G, cx, r.ya + gH * 0.58, 4, trim); gcirc(G, cx, r.ya + gH * 0.58, 3, GLASS); gset(G, cx - 1, Math.floor(r.ya + gH * 0.58) - 1, GLASS2); }
+      r.fascia();
+      if (o.chimney) { const chx = cx + Math.round((x1 - cx) * 0.45); chimneyAt(G, chx, Math.round(r.edgeR(chx + 4) - D * 0.55), 12); }
+    } else {
+      hipRoof(G, x0 - ov, x1 + ov - 1, wy + 2, D, 22, rc);
+      for (let x = x0 - ov; x < x1 + ov; x++) gset(G, x, wy + 2, trim); // Traufbrett
+      if (o.chimney) chimneyAt(G, x1 - 30, wy - D + 18, 14);
+      // Zwerchgiebel vorne in der Mitte mit rundem Fenster
+      const gw = 44, gh2 = 24, r = gableRoof(G, cx - gw / 2 - 3, cx + gw / 2 + 2, wy + 2, cx, gh2, 12, rc, trim);
+      gpoly(G, [[cx - gw / 2, wy + 1], [cx, r.ya + 3], [cx + gw / 2, wy + 1]], wc);
+      gcirc(G, cx, wy - 8, 4, trim); gcirc(G, cx, wy - 8, 3, GLASS); gset(G, cx - 1, wy - 9, GLASS2);
+      r.fascia();
+    }
+    // Veranda (amerikanischer Vorbau): Dach als Fläche von oben, Pfosten, Geländer, Holzboden, Stufen
     if (o.porch) {
       const py = gy - 5 - fh - 1;
-      shingles(G, x0 - 3, py - 3, x1 + 3, py + 3, () => true, rc); grect(G, x0 - 3, py + 3, W0 + 6, 1, rc[1]);
+      shingles(G, x0 - 3, py - 6, x1 + 3, py + 2, () => true, [darkHex(rc[0], 1.05), rc[1], rc[2]]);
+      grect(G, x0 - 3, py + 2, W0 + 6, 2, trim);
       for (let x = x0; x <= x1 - 2; x += Math.floor((W0 - 2) / 6)) grect(G, x, py + 4, 2, fh - 1, '#f3ecd9');
       for (let x = x0; x < x1; x++) { if (Math.abs(x - cx) < 9) continue; gset(G, x, gy - 13, '#f3ecd9'); gset(G, x, gy - 8, '#f3ecd9'); if (x % 3 === 0) for (let y = gy - 12; y < gy - 8; y++) gset(G, x, y, '#efe6d0'); }
       grect(G, x0 - 3, gy - 5, W0 + 6, 4, '#a8774a'); for (let x = x0 - 3; x < x1 + 3; x += 5) gset(G, x, gy - 3, '#7a5230');
       grect(G, cx - 9, gy - 1, 18, 2, '#8a5a32'); grect(G, cx - 10, gy + 1, 20, 2, '#7a5230');
-    }
-    // Dach
-    if (o.hip) {
-      const tw = Math.round(W0 * 0.35);
-      shingles(G, 0, top, Gw, top + roofH, (x, y) => { const t = (y - top) / roofH; const half = tw / 2 + t * (Gw / 2 - tw / 2); return Math.abs(x + 0.5 - cx) <= half; }, rc);
-      // Zwerchgiebel vorne in der Mitte mit rundem Fenster
-      const gh = roofH + 4, gw = 34;
-      shingles(G, cx - gw / 2 - 3, top - 2, cx + gw / 2 + 3, top + gh, (x, y) => Math.abs(x + 0.5 - cx) <= (y - top + 2) / gh * (gw / 2 + 3), rc);
-      for (let y = top + 8; y < top + gh; y++) { const half = (y - top - 6) / (gh - 6) * (gw / 2 - 3); grect(G, Math.round(cx - half), y, Math.round(half * 2), 1, wc); }
-      gcirc(G, cx, top + gh - 9, 4, o.trim); gcirc(G, cx, top + gh - 9, 3, GLASS); gset(G, cx - 1, top + gh - 10, GLASS2);
-      if (o.chimney) { grect(G, x1 - 20, 0, 8, top + 10, '#9a5a44'); grect(G, x1 - 21, 0, 10, 2, '#6f3f30'); for (let y = 3; y < top + 10; y += 3) grect(G, x1 - 20, y, 8, 1, '#7f4a38'); }
-    } else {
-      shingles(G, 0, top, Gw, top + roofH, (x, y) => Math.abs(x + 0.5 - cx) <= (y - top + 1) / roofH * (Gw / 2), rc);
-      const t = 8;
-      for (let y = top + t + 4; y < top + roofH; y++) { const half = (y - top - t - 2) / roofH * (Gw / 2 - t - 2); if (half > 0) grect(G, Math.round(cx - half), y, Math.round(half * 2), 1, wc); }
-      if (roofH > 26) { const ay = top + Math.round(roofH * 0.55); windowAt(G, cx - 5, ay, 'klein', o.winTrim || '#f3ecd9', wd); }
-      if (o.chimney) { grect(G, x1 - 16, 0, 7, top + 14, '#9a5a44'); grect(G, x1 - 17, 0, 9, 2, '#6f3f30'); }
     }
     goutline(G);
     return G;
@@ -487,19 +565,27 @@ const SCN = (() => {
   const inAnyParcel = (x, y) => PARCELS.some((p) => inRectT(p, x, y, 6));
   const MINE_X = 38.5 * T;
   function buildScene(g) {
+    BL = new Uint8Array(MAP_W * MAP_H);
+    g.save(); g.translate(MG * T, MG * T); // gezeichnet wird in Karten-Koordinaten, die Leinwand hat ringsum MG Felder Rand
     seed = 11;
-    R(g, 0, 0, W * T, H * T, '#6ea24b');
-    for (let y = 0; y < H * T; y += 4) for (let x = 0; x < W * T; x += 4) {
+    R(g, -MG * T, -MG * T, (W + 2 * MG) * T, (H + 2 * MG) * T, '#6ea24b');
+    for (let y = -MG * T; y < (H + MG) * T; y += 4) for (let x = -MG * T; x < (W + MG) * T; x += 4) {
       const r = rnd(); if (r < 0.05) R(g, x, y, 4, 4, '#649847'); else if (r < 0.08) R(g, x, y, 4, 4, '#79ad55');
     }
     const f = FARM;
-    dirt(g, f.road.x0 * T, f.road.y * T, (W - f.road.x0) * T, T);
+    dirt(g, f.road.x0 * T, f.road.y * T, (W + MG - f.road.x0) * T, T); // Dorfstraße läuft rechts aus dem Bild (Richtung Stadt)
     dirt(g, f.stegweg.x * T, f.stegweg.y0 * T, T, (f.stegweg.y1 - f.stegweg.y0 + 1) * T);
     dirt(g, f.minenweg.x * T, f.minenweg.y0 * T, T, (f.minenweg.y1 - f.minenweg.y0 + 1) * T);
     paved(g, f.yard); paved(g, f.link); paved(g, f.park);
     // Gasse in der Stadt (Pflaster), endet auf der Dorfstraße
     if (TOWN_ON) paved(g, { x: TOWN_X0 + 4, y: 1 + TOWN_Y0, w: 2, h: 13 });
     lake(g);
+    // Wasser und Berg sperren (Prüfpunkte im Feld)
+    for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++)
+      for (const [a, b] of [[0.5, 0.5], [0.12, 0.12], [0.88, 0.12], [0.12, 0.88], [0.88, 0.88]]) {
+        const px = (tx + a) * T, py = (ty + b) * T;
+        if (lakeV(px, py) > 0.06 || inMount(px, py)) { markT(tx, ty); break; }
+      }
     seed = 23;
     for (let i = 0; i < 420; i++) {
       const x = rnd() * W * T, y = rnd() * H * T;
@@ -511,6 +597,7 @@ const SCN = (() => {
     const O = []; const add = (y, fn) => O.push({ y, fn });
     seed = 5;
     const tree = (x, y) => {
+      markPx(x, y - 2); markPx(x, y - 34); // Stamm + Krone
       const r = rnd(), fl = rnd() < 0.5;
       if (r < 0.3) { const k = ['tanne1', 'tanne2', 'tanne3'][Math.floor(rnd() * 3)]; add(y, (g2) => ps(g2, k, x, y, fl)); }
       else if (r < 0.55) { const i = Math.floor(rnd() * 4); add(y, (g2) => spr(g2, 'wald', i, x, y, fl)); }
@@ -518,9 +605,16 @@ const SCN = (() => {
       else { const k = ['tanne4', 'busch1', 'busch2', 'busch5'][Math.floor(rnd() * 4)]; add(y, (g2) => ps(g2, k, x, y, fl)); }
     };
     for (let row = 0; row < 3; row++) for (let x = -10 + row * 14; x < MX - 0.6 * T; x += 40 + rnd() * 18) tree(x, (0.9 + row * 1.05) * T + rnd() * 16);
-    for (let x = 20; x < MX - T; x += 70 + rnd() * 80) { const y = 3.7 * T + rnd() * 10, k = ['busch3', 'busch4', 'farn', 'busch6'][Math.floor(rnd() * 4)]; add(y, (g2) => ps(g2, k, x, y)); }
+    for (let x = 20; x < MX - T; x += 70 + rnd() * 80) { const y = 3.7 * T + rnd() * 10, k = ['busch3', 'busch4', 'farn', 'busch6'][Math.floor(rnd() * 4)]; markPx(x, y - 2); add(y, (g2) => ps(g2, k, x, y)); }
     for (let col = 0; col < 2; col++) for (let y = 4 * T; y < 17.5 * T; y += 36 + rnd() * 16) tree((0.5 + col * 1.0) * T + rnd() * 10, y);
     for (let row = 0; row < 3; row++) for (let x = 17.8 * T + row * 14; x < W * T + 30; x += 40 + rnd() * 18) tree(x, (24.2 + row * 1.0) * T + rnd() * 14);
+    // Rand außerhalb der Karte: Wald oben, links und unten, rechts Wiese mit Bäumen (Straße frei)
+    seed = 91;
+    const freeOut = (x, y) => lakeV(x, y) < -0.15 && !inMount(x, y + 8) && !(y > 12.6 * T && y < 15.2 * T && x > (W - 1) * T);
+    for (let y = -0.2 * T; y > -MG * T; y -= 1.05 * T) for (let x = -MG * T + rnd() * 20; x < MX - 0.6 * T; x += 40 + rnd() * 18) tree(x, y + rnd() * 16);
+    for (let x = -0.5 * T; x > -MG * T; x -= T) for (let y = -MG * T + rnd() * 20; y < (H + MG) * T; y += 36 + rnd() * 16) { const xx = x + rnd() * 10; if (freeOut(xx, y)) tree(xx, y); }
+    for (let y = (H + 0.35) * T; y < (H + MG + 1) * T; y += 1.05 * T) for (let x = -MG * T + rnd() * 20; x < (W + MG) * T; x += 40 + rnd() * 18) { const yy = y + rnd() * 14; if (freeOut(x, yy)) tree(x, yy); }
+    for (let x = W * T + 20; x < (W + MG) * T + 20; x += 44 + rnd() * 16) for (let y = 0.6 * T; y < H * T; y += 40 + rnd() * 22) { const xx = x + rnd() * 12; if (freeOut(xx, y) && rnd() < 0.8) tree(xx, y); }
     // Stadtrand unter der Straße: ein paar Bäume und Büsche
     if (TOWN_ON) for (let i = 0; i < 16; i++) { const x = (TOWN_X0 + 0.5 + rnd() * (TOWN_W - 1)) * T, y = (15.5 + rnd() * 7) * T; if (rnd() < 0.5) tree(x, y); else { const k = ['busch3', 'busch5', 'farn'][Math.floor(rnd() * 3)]; add(y, (g2) => ps(g2, k, x, y)); } }
     // Berg
@@ -534,7 +628,7 @@ const SCN = (() => {
       const k2 = pick < 0.45 ? ['tanne1', 'tanne2', 'tanne3', 'tanne4'][Math.floor(rnd() * 4)] : pick < 0.75 ? ['fels3', 'fels5', 'fels6', 'kiesel1'][Math.floor(rnd() * 4)] : ['busch3', 'farn', 'kiesel2'][Math.floor(rnd() * 3)];
       add(y, (g2) => ps(g2, k2, x, y, fl));
     }
-    for (let x = MX + 20; x < MAP_W * T; x += 70 + rnd() * 60) { const y = TER[0].base(x) + 8, k = rnd() < 0.5 ? 'kiesel1' : 'kiesel2'; if (Math.abs(x - MINE_X) > 50 && Math.abs(x - (MX + 7.4 * T)) > 30) add(y, (g2) => ps(g2, k, x, y)); }
+    for (let x = MX + 20; x < MAP_W * T; x += 70 + rnd() * 60) { const y = TER[0].base(x) + 8, k = rnd() < 0.5 ? 'kiesel1' : 'kiesel2'; if (Math.abs(x - MINE_X) > 50 && Math.abs(x - (MX + 7.4 * T)) > 30) { markPx(x, y - 2); add(y, (g2) => ps(g2, k, x, y)); } }
     const my = TER[0].base(MINE_X);
     add(my, (g2) => mine(g2, MINE_X, my));
     add(my + 1, (g2) => rails(g2, MINE_X, my, 6.6 * T));
@@ -547,12 +641,14 @@ const SCN = (() => {
     add(11.2 * T, (g2) => parkFence(g2, 'back'));
     add(13.45 * T, (g2) => parkFence(g2, 'sides'));
     // See: Schilf, Steg, Boot, Wegweiser
-    for (const [x, y] of [[0.8, 18.4], [11.6, 19.7], [14.1, 21.4], [2.4, 17.7], [16.4, 22.6]]) add(y * T, (g2) => ps(g2, 'schilf', x * T, y * T, x > 8));
+    for (const [x, y] of [[0.8, 18.4], [11.6, 19.7], [14.1, 21.4], [2.4, 17.7], [16.4, 22.6]]) { markPx(x * T, y * T - 2); add(y * T, (g2) => ps(g2, 'schilf', x * T, y * T, x > 8)); }
     add(17.6 * T, (g2) => pier(g2, 7.5 * T, 17.5 * T, 21.0 * T));
     add(21.1 * T, (g2) => ps(g2, 'boot', 7.5 * T, 20.85 * T + 71));
     add(17.2 * T, (g2) => signpost(g2, 8.7 * T, 17.2 * T, 'Angelsteg'));
-    add(13.0 * T, (g2) => signpost(g2, 36.4 * T, 13.0 * T, 'Sonnenfeld'));
+    // Wegweiser nach Sonnenfeld ganz rechts am Ende der Dorfstraße, zeigt aus dem Bild hinaus (später: mit dem Auto in die Stadt)
+    add(15.1 * T, (g2) => signpost(g2, W * T - 60, 15.1 * T, 'Sonnenfeld'));
     for (const o of O.sort((a, b) => a.y - b.y)) o.fn(g);
+    g.restore();
   }
 
   // ---------- Häuser und Autos (zwischengespeichert) ----------
@@ -589,6 +685,6 @@ const SCN = (() => {
   }
   const canvasURL = (cv) => { if (!cv.dataset) return ''; return cv._url || (cv._url = cv.toDataURL()); };
 
-  return { buildScene, dspr, ps, danim, pixelText, houseCanvas, vehicleCanvas, iconCanvas, decoIconURL, canvasURL, dogHouse, catTree, plaque, onReady, lakeV, MINE_X,
+  return { MG, buildScene, blockedAt, waterAt, dspr, ps, danim, pixelText, pixelTextBox, houseCanvas, vehicleCanvas, iconCanvas, decoIconURL, canvasURL, dogHouse, catTree, plaque, onReady, lakeV, MINE_X,
     get ready() { return dReady; }, DATL };
 })();

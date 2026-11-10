@@ -11,6 +11,7 @@ const TOWN_Y0 = -1;        // Stadt eine Zeile nach oben verschoben, damit ihre 
 const TOWN_NAME = 'Sonnenfeld';
 // Stadt vorerst ausgeschaltet (Marvin will sie später neu machen). Gebaute Projekte bleiben im Spielstand (G.town) erhalten.
 const TOWN_ON = false;
+const SCENE_MARGIN = 6;    // so viele Felder Landschaft werden rings um die Karte weitergezeichnet (keine leeren Ränder)
 // alte Karte (für den Umzug alter Spielstände)
 const OLD = { MAP_W: 24, MAP_H: 16, PARCEL: 4, X0: 4, Y0: 2, COLS: 5, ROWS: 3 };
 
@@ -38,6 +39,7 @@ const FARM_OBJ = [
   { id: 'hund', x: 4, y: 8, w: 2, h: 1 }, { id: 'hofladen', x: 10, y: 11, w: 3, h: 2 }, { id: 'tafel', x: 13, y: 12, w: 1, h: 1 },
   { id: 'stellplatz', x: 5, y: 11, w: 2, h: 2 }, { id: 'steg', x: 6, y: 17, w: 2, h: 4 }, { id: 'boot', x: 6, y: 21, w: 2, h: 2 },
   { id: 'bergwerk', x: 37, y: 2, w: 3, h: 3 }, { id: 'haendler', x: 10, y: 14, w: 2, h: 1 },
+  { id: 'sonnenfeld', x: 38, y: 14, w: 2, h: 2 }, { id: 'steg', x: 8, y: 16, w: 2, h: 2 }, // Wegweiser „Angelsteg“ gehört zum Steg // Wegweiser am Ende der Dorfstraße (später: mit dem Auto in die Stadt)
 ];
 // Deko-Zonen außerhalb der Landstücke (dort liegen nie Felder)
 const DECO_ZONES = [
@@ -210,6 +212,7 @@ const xpForLevel = (lvl) => Math.floor(22 * lvl * lvl + 10); // Update 4: etwas 
 const parcelCost = (k, area = 16) => Math.round(200 * Math.pow(1.85, k) * area / 16 / 10) * 10;
 
 // ---------- Deko (Update 6, alles aus der Deko-Werkstatt) ----------
+// Größe w × h in Feldern; das Bild wird so gezeichnet, dass es GANZ in diese Felder passt (nie darüber hinaus).
 // kind: 'item' (steht auf 1 Kachel oder w×h), 'path' (Weg, je Feld), 'fence' (Zaun, je Feld, verbindet sich),
 //       'sign' (Schild mit eigenem Text), 'pet' (lebendig, ohne Platz), 'trader' (nur beim Wanderhändler)
 // spr = Bild im Deko-Atlas (js/deko.js), lv = Level, price = Münzen (bleibt immer gleich), need = zusätzliche Waren
@@ -236,7 +239,7 @@ const DECO = {
   pilze:        { name: 'Fliegenpilz',    cat: 'natur',  lv: 3,  price: 50,   spr: 'd_pilz', icon: 'd_pilze' },
   stumpf:       { name: 'Baumstumpf',     cat: 'natur',  lv: 5,  price: 50,   spr: 'd_stumpf' },
   steinmann:    { name: 'Steinmännchen',  cat: 'natur',  lv: 7,  price: 70,   spr: 'd_steinmann' },
-  felsen:       { name: 'Felsgruppe',     cat: 'natur',  lv: 12, price: 900,  spr: 'd_felsen', w: 2, h: 2 },
+  felsen:       { name: 'Felsgruppe',     cat: 'natur',  lv: 12, price: 900,  spr: 'd_felsen', w: 2, h: 1 },
   kisten:       { name: 'Kistenstapel',   cat: 'hof',    lv: 3,  price: 70,   spr: 'd_kisten' },
   fass:         { name: 'Regenfass',      cat: 'hof',    lv: 4,  price: 60,   spr: 'd_fass' },
   kuerbiskiste: { name: 'Apfelkiste',     cat: 'hof',    lv: 4,  price: 220,  spr: 'd_kuerbiskiste' },
@@ -245,14 +248,14 @@ const DECO = {
   schubkarre:   { name: 'Schubkarre',     cat: 'hof',    lv: 99, price: 0,    atlas: 'schubkarre', start: true },
   fischtafel:   { name: 'Fisch-Trophäe',  cat: 'teich',  lv: 2,  price: 0,    spr: 'd_fischtafel', stat: ['fished', 25], unlockText: 'bei 25 Fischen' },
   gestell:      { name: 'Fisch-Trockengestell', cat: 'teich', lv: 6, price: 300, spr: 'd_gestell', w: 2, h: 1 },
-  netz:         { name: 'Fischernetz',    cat: 'teich',  lv: 8,  price: 260,  spr: 'd_netz', w: 2, h: 1 },
+  netz:         { name: 'Fischernetz',    cat: 'teich',  lv: 8,  price: 260,  spr: 'd_netz' },
   hai:          { name: 'Hai-Trophäe',    cat: 'teich',  lv: 2,  price: 2500, spr: 'd_hai', w: 2, h: 1, stat: ['fished', 200], unlockText: 'bei 200 Fischen' },
   picknick:     { name: 'Festtafel',      cat: 'fest',   lv: 10, price: 480,  spr: 'd_picknick', w: 2, h: 1 },
   riesenfass:   { name: 'Erntedank-Fass', cat: 'fest',   lv: 11, price: 600,  spr: 'd_riesenfass' },
   stand:        { name: 'Hofladen-Stand', cat: 'fest',   lv: 13, price: 2400, spr: 'd_stand', w: 2, h: 2, town: 'markt', unlockText: 'mit Wochenmarkt' },
   banner:       { name: 'Wappenbanner',   cat: 'fest',   lv: 14, price: 900,  spr: 'd_banner', w: 1, h: 2 },
   engel:        { name: 'Engelsstatue',   cat: 'fest',   lv: 16, price: 4500, spr: 'd_engel', w: 1, h: 2, need: { edelstein: 3 } },
-  drache:       { name: 'Drachenstatue',  cat: 'fest',   lv: 19, price: 9000, spr: 'd_drache', w: 2, h: 2, need: { edelstein: 10, eisenerz: 20 }, allTown: true, unlockText: 'alle Stadtprojekte' },
+  drache:       { name: 'Drachenstatue',  cat: 'fest',   lv: 19, price: 9000, spr: 'd_drache', w: 1, h: 2, need: { edelstein: 10, eisenerz: 20 }, allTown: true, unlockText: 'alle Stadtprojekte' },
   windlicht:    { name: 'Windlicht',      cat: 'licht',  lv: 3,  price: 40,   spr: 'd_windlicht', light: 'glow' },
   fackel:       { name: 'Fackel',         cat: 'licht',  lv: 3,  price: 60,   spr: 'd_fackel', light: 'flame' },
   laterne:      { name: 'Hoflaterne',     cat: 'licht',  lv: 5,  price: 180,  spr: 'd_laterne', light: 'glow' },
@@ -260,11 +263,11 @@ const DECO = {
   feuerschale:  { name: 'Feuerschale',    cat: 'licht',  lv: 10, price: 420,  spr: 'd_feuerschale', light: 'flame' },
   kerzenstaender:{ name: 'Kerzenständer', cat: 'licht',  lv: 12, price: 650,  spr: 'd_kerzenstaender', light: 'glow' },
   gluehwuermchen:{ name: 'Glühwürmchen',  cat: 'licht',  lv: 13, price: 900,  spr: 'd_gluehwuermchen', light: 'fireflies' },
-  schild_pfahl: { name: 'Pfahlschild',    cat: 'schilder', lv: 1,  price: 30,  kind: 'sign', spr: 's_pfahl', icon: 'd_schild_pfahl', text: [43, 4, '#3b2412'] },
-  schild_haenge:{ name: 'Hängeschild',    cat: 'schilder', lv: 6,  price: 80,  kind: 'sign', spr: 's_haenge', icon: 'd_schild_haenge', text: [50, 16, '#3b2412'] },
-  schild_kreide:{ name: 'Kreidetafel',    cat: 'schilder', lv: 8,  price: 120, kind: 'sign', spr: 's_kreide', icon: 'd_schild_kreide', text: [43, 7, '#f2f2ea'] },
-  schild_weg:   { name: 'Wegweiser',      cat: 'schilder', lv: 10, price: 200, kind: 'sign', spr: 's_weg', icon: 'd_schild_weg', text: [42, 6, '#3b2412'] },
-  schild_messing:{ name: 'Messingschild', cat: 'schilder', lv: 12, price: 400, kind: 'sign', spr: 's_messing', icon: 'd_schild_messing', text: [45, 12, '#5a4210'] },
+  schild_pfahl: { name: 'Pfahlschild',    cat: 'schilder', lv: 1,  price: 30,  kind: 'sign', w: 2, spr: 's_pfahl', icon: 'd_schild_pfahl', text: [43, 4, '#3b2412'] },
+  schild_haenge:{ name: 'Hängeschild',    cat: 'schilder', lv: 6,  price: 80,  kind: 'sign', w: 2, spr: 's_haenge', icon: 'd_schild_haenge', text: [50, 16, '#3b2412'] },
+  schild_kreide:{ name: 'Kreidetafel',    cat: 'schilder', lv: 8,  price: 120, kind: 'sign', w: 2, spr: 's_kreide', icon: 'd_schild_kreide', text: [43, 7, '#f2f2ea'] },
+  schild_weg:   { name: 'Wegweiser',      cat: 'schilder', lv: 10, price: 200, kind: 'sign', w: 2, spr: 's_weg', icon: 'd_schild_weg', text: [42, 6, '#3b2412'] },
+  schild_messing:{ name: 'Messingschild', cat: 'schilder', lv: 12, price: 400, kind: 'sign', w: 2, spr: 's_messing', icon: 'd_schild_messing', text: [45, 12, '#5a4210'] },
   katze:        { name: 'Hofkatze mit Kratzbaum', cat: 'leben', lv: 6, price: 900, kind: 'pet', spr: 'd_katze', note: 'Kratzbaum an der Scheune, die Katze streift über den Hof' },
   kueken:       { name: 'Entenküken',     cat: 'leben',  lv: 8,  price: 350,  kind: 'pet', spr: 'd_kueken', note: 'Schwimmen der Entenmama auf dem See hinterher' },
   kraehe:       { name: 'Krähen',         cat: 'leben',  lv: 6,  price: 0,    kind: 'pet', spr: 'd_kraehe', free: 'vogelscheuche', note: 'Kommen von allein, sobald eine Vogelscheuche steht' },

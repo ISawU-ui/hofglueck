@@ -104,6 +104,7 @@ function load() {
     for (const b of Object.values(G.buildings)) if (!BUILDINGS[b.type]) delete G.buildings[b.id];
     for (const d of Object.values(G.deco)) if (!DECO[d.t]) delete G.deco[d.id];
     G.tiles.forEach((t) => { if (t.b && !G.buildings[t.b]) t.b = null; if (t.d && !G.deco[t.d]) t.d = null; });
+    refitDeco();
   } catch (e) { console.error(e); newGame(); return 0; }
   if (!Number.isFinite(G.money)) G.money = 0;
   if (!Number.isFinite(G.xp)) G.xp = 0;
@@ -595,14 +596,46 @@ function payDeco(id) {
   for (const [k, n] of Object.entries(decoNeed(id))) G.inv[k] -= n;
   return true;
 }
-// Darf das Stück hier stehen? Eigenes Land (frei) oder eine Deko-Zone; Beete nur für Blumen.
+// Darf das Stück hier stehen? ÜBERALL (Wiese, Wald, Berg, Wege, Hofplatz, eigenes Land) – nur nicht im Wasser,
+// auf bepflanzten Feldern, auf noch gesperrtem Land oder dort, wo schon etwas steht (Gebäude, Haus, andere Deko).
+// Beete vor dem Haus nur für Blumen. (Marvins Wunsch 2026-11-10)
+const sceneWater = (x, y) => typeof SCN !== 'undefined' && SCN.waterAt(x, y);
 function decoTileOK(id, x, y, ignore) {
-  if (!inMap(x, y) || isRoad(x, y)) return false;
+  if (!inMap(x, y)) return false;
   const t = tile(x, y);
   if (t.b || t.c || (t.d && t.d !== ignore)) return false;
   if (isBed(x, y)) return !!DECO[id].flower && decoW(id) === 1;
   if (farmObjAt(x, y)) return false;
-  return owned(x, y) || !!zoneAt(x, y);
+  if (parcelAt(x, y) && !owned(x, y)) return false;
+  return !sceneWater(x, y);
+}
+// Warum geht es hier nicht? (für die Meldung)
+function decoWhyNot(id, x, y) {
+  for (let dx = 0; dx < decoW(id); dx++) for (let dy = 0; dy < decoH(id); dy++) {
+    const tx = x + dx, ty = y + dy;
+    if (!inMap(tx, ty)) return 'Hier ist der Rand der Karte.';
+    const t = tile(tx, ty);
+    if (isBed(tx, ty) && !(DECO[id].flower && decoW(id) === 1)) return 'Ins Beet passen nur Blumen.';
+    if (parcelAt(tx, ty) && !owned(tx, ty)) return 'Dieses Land gehört dir noch nicht.';
+    if (sceneWater(tx, ty)) return 'Nicht ins Wasser.';
+    if (t.c) return 'Hier wächst etwas – erst ernten.';
+  }
+  return 'Hier steht schon etwas.';
+}
+// Nach Größen-Änderungen (Update 7): Felder aller Deko neu belegen; was nicht mehr passt, kommt kostenlos ins Lager.
+function refitDeco() {
+  G.tiles.forEach((t) => { t.d = null; });
+  for (const d of Object.values(G.deco).sort((a, b) => a.id - b.id)) {
+    const k = decoKind(d.t); if (k === 'pet') continue;
+    let ok = true;
+    for (let dx = 0; dx < decoW(d.t) && ok; dx++) for (let dy = 0; dy < decoH(d.t) && ok; dy++) {
+      const x = d.x + dx, y = d.y + dy;
+      if (!inMap(x, y) || farmObjAt(x, y)) { ok = false; break; }
+      const t = tile(x, y); if (t.b || t.c || t.d) ok = false;
+    }
+    if (!ok) { delete G.deco[d.id]; G.decoStore[d.t] = (G.decoStore[d.t] || 0) + 1; continue; }
+    for (let dx = 0; dx < decoW(d.t); dx++) for (let dy = 0; dy < decoH(d.t); dy++) tile(d.x + dx, d.y + dy).d = d.id;
+  }
 }
 function decoOK(id, x, y, ignore) {
   for (let dx = 0; dx < decoW(id); dx++) for (let dy = 0; dy < decoH(id); dy++) if (!decoTileOK(id, x + dx, y + dy, ignore)) return false;
