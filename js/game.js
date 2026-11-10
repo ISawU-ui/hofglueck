@@ -605,7 +605,8 @@ function decoTileOK(id, x, y, ignore) {
   const t = tile(x, y);
   if (t.b || t.c || (t.d && t.d !== ignore)) return false;
   if (isBed(x, y)) return !!DECO[id].flower && decoW(id) === 1;
-  if (farmObjAt(x, y)) return false;
+  const fo = farmObjAt(x, y);
+  if (fo && !(fo.id === 'kratzbaum' && !G.pets.katze)) return false; // Kratzbaum-Platz ist frei, solange keine Katze da ist
   if (parcelAt(x, y) && !owned(x, y)) return false;
   return !sceneWater(x, y);
 }
@@ -671,10 +672,19 @@ function moveDeco(n, x, y) {
   sfx('build'); return true;
 }
 const SIGN_MAX = 12;
-function setSignText(n, text) { const d = G.deco[n]; if (d) d.text = String(text || '').slice(0, SIGN_MAX); }
+function setSignText(n, text) {
+  const d = G.deco[n]; if (!d) return;
+  let t = String(text || '').trim().slice(0, SIGN_MAX);
+  // so kürzen, dass links und rechts mindestens 4 Pixel Rand bleiben
+  const box = typeof DSIGN !== 'undefined' && DSIGN[DECO[d.t].spr];
+  if (box && typeof SCN !== 'undefined') while (t.length > 1 && SCN.inkWidth(t) > box[2] - 8) t = t.slice(0, -1).trimEnd();
+  d.text = t;
+}
 function buyPet(id) {
   if (G.pets[id] || !decoUnlocked(id) || !payDeco(id)) return false;
-  G.pets[id] = true; sfx('animal'); return true;
+  G.pets[id] = true; sfx('animal');
+  if (id === 'katze') { const k = farmObj('kratzbaum'), t = tile(k.x, k.y); if (t.d) storeDeco(t.d); } // Platz für den Kratzbaum freimachen
+  return true;
 }
 // Wanderhändler: jeden Tag ein anderes Sonderstück, das es sonst nirgends gibt
 const TRADER_ITEMS = Object.keys(DECO).filter((id) => DECO[id].kind === 'trader');

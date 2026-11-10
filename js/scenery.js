@@ -36,16 +36,17 @@ const SCN = (() => {
     const c = DFONT.c; let x = 0, i0 = 0, i1 = 0;
     [...s].forEach((ch, i) => { const e = c[ch]; if (i === 0) i0 = e ? e[2] : 0; i1 = x + (e ? e[3] : 4); x += (e ? e[1] : 4) + 1; });
     const ox = Math.round(bx + (bw - (i1 - i0)) / 2 - i0), oy = Math.round(by + (bh - (DFONT.base - DFONT.top)) / 2 - DFONT.top);
-    pixelText(g, s, ox + x / 2, oy, color, true);
+    pixelText(g, s, ox, oy, color, true);
   }
+  const inkWidth = (s) => { const c = DFONT.c; let x = 0, i0 = 0, i1 = 0; [...s].forEach((ch, i) => { const e = c[ch]; if (i === 0) i0 = e ? e[2] : 0; i1 = x + (e ? e[3] : 4); x += (e ? e[1] : 4) + 1; }); return i1 - i0; };
   // Pixel-Schrift für eigene Schildtexte (zentriert um cx, oben bei y)
-  function pixelText(g, s, cx, y, color, exact = false) {
-    const c = DFONT.c; let w = 0; for (const ch of s) w += (c[ch] ? c[ch][1] : 4) + 1;
-    let x = exact ? Math.round(cx - w / 2 + 0.01) : Math.round(cx - w / 2);
+  function pixelText(g, s, cx, y, color, exact = false) { // exact: cx ist schon die linke Kante (enge Schrift)
+    const c = DFONT.c, gap = 1; let w = 0; for (const ch of s) w += (c[ch] ? c[ch][1] : 4) + gap;
+    let x = exact ? cx : Math.round(cx - w / 2);
     const tmp = pixelText.cv || (pixelText.cv = document.createElement('canvas'));
     tmp.width = Math.max(1, w); tmp.height = DFONT.h; const tg = tmp.getContext('2d');
     tg.clearRect(0, 0, tmp.width, tmp.height);
-    let tx = 0; for (const ch of s) { const e = c[ch]; if (e) tg.drawImage(DATL, DFONT.x + e[0], DFONT.y, e[1], DFONT.h, tx, 0, e[1], DFONT.h); tx += (e ? e[1] : 4) + 1; }
+    let tx = 0; for (const ch of s) { const e = c[ch]; if (e) tg.drawImage(DATL, DFONT.x + e[0], DFONT.y, e[1], DFONT.h, tx, 0, e[1], DFONT.h); tx += (e ? e[1] : 4) + gap; }
     tg.globalCompositeOperation = 'source-in'; tg.fillStyle = color; tg.fillRect(0, 0, tmp.width, tmp.height); tg.globalCompositeOperation = 'source-over';
     g.drawImage(tmp, x, Math.round(y));
   }
@@ -182,6 +183,49 @@ const SCN = (() => {
     R(g, a + 42, b + 40, 11, 6, '#22457a'); R(g, a + 42, b + 39, 11, 5, '#3a74c4'); R(g, a + 43, b + 40, 9, 3, '#8b5a2b'); R(g, a + 44, b + 40, 2, 1, '#a8774a');
     R(g, a - 3, b + 42, 9, 2, '#f3ecd9'); R(g, a - 4, b + 41, 2, 2, '#f3ecd9'); R(g, a - 4, b + 43, 2, 2, '#f3ecd9'); R(g, a + 5, b + 41, 2, 2, '#f3ecd9'); R(g, a + 5, b + 43, 2, 2, '#f3ecd9');
   }
+
+  // Wanderhändler: eigene Figur mit ganzem Körper (Hut, Bart, Mantel, Gürtel mit Geldbeutel, Umhängetasche, Hose, Stiefel)
+  // frame 1 = winkt mit der rechten Hand
+  function merchantGrid(frame) {
+    const G = grid(30, 50), cx = 15;
+    const SK = '#e9b48a', SKD = '#c98e66', CO = '#6a4c93', COD = '#4f3770', COL = '#8a6cb3', BE = '#8a6a4a', BED = '#6b4f35';
+    // Stiefel + Hose
+    grect(G, cx - 6, 43, 5, 5, '#3b2412'); grect(G, cx + 1, 43, 5, 5, '#3b2412'); grect(G, cx - 6, 43, 5, 1, '#5d3a1a'); grect(G, cx + 1, 43, 5, 1, '#5d3a1a');
+    grect(G, cx - 5, 36, 4, 7, '#4a4a5a'); grect(G, cx + 1, 36, 4, 7, '#4a4a5a'); grect(G, cx - 2, 36, 1, 7, '#3a3a48');
+    // Mantel (Rock vorne offen), Hemd, Gürtel mit Schnalle und Geldbeutel
+    grect(G, cx - 7, 21, 14, 17, CO); grect(G, cx - 7, 21, 2, 17, COD); grect(G, cx + 5, 21, 2, 17, COD);
+    grect(G, cx - 2, 21, 4, 12, '#f3ecd9'); for (let y = 23; y < 32; y += 3) gset(G, cx, y, '#a8774a');
+    grect(G, cx - 7, 30, 14, 2, '#3b2412'); grect(G, cx - 1, 30, 2, 2, '#ffd34d');
+    grect(G, cx + 2, 32, 4, 4, '#c9962c'); grect(G, cx + 2, 32, 4, 1, '#8a6a22'); gset(G, cx + 4, 34, '#ffe08a');
+    grect(G, cx - 7, 34, 3, 4, COD); grect(G, cx + 4, 34, 3, 4, COD);
+    // Umhängetasche (Riemen schräg über die Brust)
+    for (let i = 0; i < 11; i++) gset(G, cx - 5 + i, 21 + i, '#7a4b25');
+    grect(G, cx - 10, 29, 5, 6, '#a8774a'); grect(G, cx - 10, 29, 5, 2, '#c99a5e');
+    // Kragen + Schultern
+    grect(G, cx - 8, 20, 16, 3, COL); grect(G, cx - 3, 20, 6, 2, '#f3ecd9');
+    // Arme
+    grect(G, cx - 10, 22, 3, 9, CO); grect(G, cx - 10, 31, 3, 2, SK);
+    if (frame === 1) { grect(G, cx + 7, 12, 3, 10, CO); grect(G, cx + 7, 10, 3, 3, SK); gset(G, cx + 10, 10, SK); }
+    else { grect(G, cx + 7, 22, 3, 9, CO); grect(G, cx + 7, 31, 3, 2, SK); }
+    // Kopf: Gesicht, Augen, Nase, Bart
+    grect(G, cx - 5, 9, 10, 11, SK); grect(G, cx - 5, 9, 1, 11, SKD); gset(G, cx - 6, 13, SK); gset(G, cx + 5, 13, SK);
+    gset(G, cx - 3, 13, '#2a1d14'); gset(G, cx + 2, 13, '#2a1d14'); gset(G, cx - 3, 12, BED); gset(G, cx + 2, 12, BED);
+    gset(G, cx - 1, 15, SKD); gset(G, cx, 15, SKD);
+    grect(G, cx - 5, 16, 10, 4, BE); grect(G, cx - 4, 20, 8, 1, BE); grect(G, cx - 2, 17, 4, 1, '#b8462f'); grect(G, cx - 5, 19, 1, 1, BED); grect(G, cx + 4, 19, 1, 1, BED);
+    // Hut mit breiter Krempe und rotem Band + Feder
+    grect(G, cx - 9, 8, 18, 2, '#5d3a1a'); grect(G, cx - 9, 8, 18, 1, '#7a4b25');
+    grect(G, cx - 5, 2, 10, 6, '#6b4423'); grect(G, cx - 5, 2, 10, 1, '#8a5a32'); grect(G, cx - 5, 6, 10, 2, '#c0392b');
+    grect(G, cx + 4, 0, 2, 5, '#ffd34d'); gset(G, cx + 5, 0, '#fff3b0');
+    goutline(G);
+    for (let y = 47; y < 50; y++) for (let x = 4; x < 26; x++) if (!gget(G, x, y) && ((x - 15) / 10) ** 2 + ((y - 48) / 1.8) ** 2 <= 1) gset(G, x, y, 'rgba(0,0,0,0.22)');
+    return G;
+  }
+  const merchantCv = [];
+  function merchant(g, x, y, frame = 0) { // (x, y) = Füße
+    if (!merchantCv[frame]) merchantCv[frame] = canvasOf(merchantGrid(frame));
+    const c = merchantCv[frame]; g.drawImage(c, Math.round(x - c.width / 2), Math.round(y - 48));
+  }
+  const merchantURL = () => { if (!merchantCv[0]) merchantCv[0] = canvasOf(merchantGrid(0)); return canvasURL(merchantCv[0]); };
   // Katzenbaum: Sockel, Sisal-Stämme, Höhlenhaus mit Spitzdach, Liegebrett mit Kissen, Spielball
   function catTree(g, x, y) {
     const a = Math.round(x - 22), b = Math.round(y - 66);
@@ -685,6 +729,6 @@ const SCN = (() => {
   }
   const canvasURL = (cv) => { if (!cv.dataset) return ''; return cv._url || (cv._url = cv.toDataURL()); };
 
-  return { MG, buildScene, blockedAt, waterAt, dspr, ps, danim, pixelText, pixelTextBox, houseCanvas, vehicleCanvas, iconCanvas, decoIconURL, canvasURL, dogHouse, catTree, plaque, onReady, lakeV, MINE_X,
+  return { MG, buildScene, blockedAt, waterAt, dspr, ps, danim, pixelText, pixelTextBox, inkWidth, houseCanvas, vehicleCanvas, iconCanvas, decoIconURL, canvasURL, dogHouse, catTree, merchant, merchantURL, plaque, onReady, lakeV, MINE_X,
     get ready() { return dReady; }, DATL };
 })();

@@ -502,7 +502,7 @@ function openSlots(atStart, away) {
     if (info) h += `<button class="ghost danger" data-act="slotdel:${n}" data-confirm="${cur ? 'Neu anfangen?' : 'Löschen?'}" title="${cur ? 'Diesen Hof löschen und neu anfangen' : 'Spielstand löschen'}">🗑️</button>`;
     h += `<button data-act="slot:${n}">${cur ? (atStart ? 'Weiterspielen' : 'Zurück') : info ? 'Laden' : 'Neues Spiel'}</button></div></div>`;
   }
-  h += '</div><p class="small">🗑️ löscht einen Spielstand (zweimal tippen). Beim aktiven Hof heißt das: neu anfangen.</p></div>';
+  h += '</div><p class="small">🗑️ löscht einen Spielstand (zweimal tippen). Beim aktiven Hof heißt das: neu anfangen.<br><span style="opacity:.6">Spiel-Version ' + GAME_VERSION + '</span></p></div>';
   openModal(h, atStart ? 'slotstart' : 'slots');
 }
 function pickSlot(n) {
@@ -687,7 +687,7 @@ function openCars(refresh) {
 // ---------- Wanderhändler ----------
 function openTrader() {
   const id = traderOffer(), d = DECO[id];
-  openModal(`<h2>🧺 Wanderhändler</h2><p>„Heute habe ich etwas ganz Besonderes für dich!“</p><div class="decoprev">${decoImg(id)}</div>
+  openModal(`<h2>🧺 Wanderhändler</h2><div class="trader-talk"><img class="pix" src="${SCN.merchantURL()}" alt="" width="60" height="100"><p>„Heute habe ich etwas ganz Besonderes für dich!“</p></div><div class="decoprev">${decoImg(id)}</div>
     <p><b>${d.name}</b><br><small>Gibt es nur bei mir – morgen habe ich etwas anderes.</small></p>
     <div class="row"><button class="ghost" data-act="close">Nein danke</button><button class="gold" data-act="trader" ${G.trader.sold || G.money < d.price ? 'disabled' : ''}>${G.trader.sold ? 'Ausverkauft – morgen wieder' : 'Kaufen 💰 ' + fmt(d.price)}</button></div>`, 'trader');
 }

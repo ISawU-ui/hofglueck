@@ -279,3 +279,7 @@ img.pix { image-rendering: pixelated; image-rendering: crisp-edges; }
 .textin { width: 100%; font: inherit; font-size: 18px; padding: 8px 10px; border: 2px solid var(--wood); border-radius: 8px; margin: 6px 0 10px; background: #fff; color: var(--ink); }
 .opt, .dcard button { white-space: normal; overflow-wrap: anywhere; }
 .opt small { display: block; max-width: 100%; }
+/* Wanderhändler im Fenster: Figur neben der Sprechblase */
+.trader-talk { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.trader-talk img { image-rendering: pixelated; flex: 0 0 auto; }
+.trader-talk p { margin: 0; }

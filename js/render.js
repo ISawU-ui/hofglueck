@@ -237,7 +237,7 @@ function farmObjects(list, T) {
   // Auto auf dem Stellplatz
   if (G.car.cur) { const vc = SCN.vehicleCanvas(G.car.cur); add(12.9 * TILE, () => ctx.drawImage(vc, Math.round(6 * TILE - vc.width / 2), Math.round(12.9 * TILE - vc.height))); }
   // Wanderhändler mit Karren
-  add(14.85 * TILE, () => { spr(ctx, 'karren', 0, 12.4 * TILE, 14.95 * TILE); spr(ctx, 'buerger3_runter', 0, 10.9 * TILE, 14.85 * TILE); }); // Händler mit ganzem Körper (vorher nur Kopf vom Marktstand)
+  add(14.85 * TILE, () => { spr(ctx, 'karren', 0, 12.4 * TILE, 14.95 * TILE); SCN.merchant(ctx, 10.9 * TILE, 14.9 * TILE, (Math.floor(T * 2) % 7 === 0) ? 1 : 0); }); // Händler: eigene Figur mit ganzem Körper, winkt ab und zu
   // Krähen um die erste Vogelscheuche
   const sc = Object.values(G.deco).find((d) => d.t === 'vogelscheuche');
   if (sc) for (let i = 0; i < 3; i++) {
@@ -353,7 +353,8 @@ function drawDeco(d, T, alpha = 1) {
   SCN.dspr(ctx, def.spr, 0, 0, false, alpha);
   if (k === 'sign' && d.text) {
     const r = DSPR[def.spr], x0 = Math.round(-r[2] / 2), y0 = -r[3], bx = DSIGN[def.spr];
-    if (bx) SCN.pixelTextBox(ctx, d.text, x0 + bx[0], y0 + bx[1], bx[2], bx[3], def.text[2]);
+    let t = String(d.text).trim(); while (bx && t.length > 1 && SCN.inkWidth(t) > bx[2] - 8) t = t.slice(0, -1).trimEnd(); // immer mit Rand
+    if (bx) SCN.pixelTextBox(ctx, t, x0 + bx[0], y0 + bx[1], bx[2], bx[3], def.text[2]);
   }
   ctx.restore();
 }
