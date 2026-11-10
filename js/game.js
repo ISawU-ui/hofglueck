@@ -602,10 +602,12 @@ function payDeco(id) {
 // auf bepflanzten Feldern, auf noch gesperrtem Land oder dort, wo schon etwas steht (Gebäude, Haus, andere Deko).
 // Beete vor dem Haus nur für Blumen. (Marvins Wunsch 2026-11-10)
 const sceneWater = (x, y) => typeof SCN !== 'undefined' && SCN.waterAt(x, y);
-function decoTileOK(id, x, y, ignore) {
+// rep = „drübersetzen“: andere Deko und Pflanzen dürfen dort sein und werden beim Aufstellen abgebaut (Marvins Wunsch)
+function decoTileOK(id, x, y, ignore, rep = false) {
   if (!inMap(x, y)) return false;
   const t = tile(x, y);
-  if (t.b || t.c || (t.d && t.d !== ignore)) return false;
+  if (t.b) return false;
+  if (!rep && (t.c || (t.d && t.d !== ignore))) return false;
   if (isBed(x, y)) return !!DECO[id].flower && decoW(id) === 1;
   const fo = farmObjAt(x, y);
   if (fo && !(fo.id === 'kratzbaum' && !G.pets.katze)) return false; // Kratzbaum-Platz ist frei, solange keine Katze da ist
@@ -613,7 +615,7 @@ function decoTileOK(id, x, y, ignore) {
   return !sceneWater(x, y);
 }
 // Warum geht es hier nicht? (für die Meldung)
-function decoWhyNot(id, x, y) {
+function decoWhyNot(id, x, y, rep = decoReplaces(id)) {
   for (let dx = 0; dx < decoW(id); dx++) for (let dy = 0; dy < decoH(id); dy++) {
     const tx = x + dx, ty = y + dy;
     if (!inMap(tx, ty)) return 'Hier ist der Rand der Karte.';
@@ -621,9 +623,32 @@ function decoWhyNot(id, x, y) {
     if (isBed(tx, ty) && !(DECO[id].flower && decoW(id) === 1)) return 'Ins Beet passen nur Blumen.';
     if (parcelAt(tx, ty) && !owned(tx, ty)) return 'Dieses Land gehört dir noch nicht.';
     if (sceneWater(tx, ty)) return 'Nicht ins Wasser.';
-    if (t.c) return 'Hier wächst etwas – erst ernten.';
+    if (t.b) return 'Hier steht ein Gebäude.';
+    if (!rep && t.c) return 'Hier wächst etwas – erst ernten.';
   }
   return 'Hier steht schon etwas.';
+}
+// Einzelstücke dürfen drübergesetzt werden; Wege/Zäune (Wischen) nicht, sonst räumt man beim Ziehen aus Versehen ab
+const decoReplaces = (id) => !['path', 'fence', 'pet'].includes(decoKind(id));
+// Was würde beim Aufstellen abgebaut? (Namen für die Vorschau-Leiste)
+function decoReplaced(id, x, y, ignore) {
+  const out = [], seen = {};
+  for (let dx = 0; dx < decoW(id); dx++) for (let dy = 0; dy < decoH(id); dy++) {
+    if (!inMap(x + dx, y + dy)) continue;
+    const t = tile(x + dx, y + dy);
+    if (t.d && t.d !== ignore && G.deco[t.d] && !seen[t.d]) { seen[t.d] = 1; out.push(DECO[G.deco[t.d].t].name); }
+    if (t.c && !seen['c' + t.c]) { seen['c' + t.c] = 1; out.push(CROPS[t.c] ? CROPS[t.c].name : t.c); }
+  }
+  return out;
+}
+// Platz frei machen: andere Deko kostenlos ins Lager, Pflanzen wie mit der Spitzhacke (Reifes ernten, sonst Saatgut zurück)
+function clearForDeco(id, x, y, ignore) {
+  for (let dx = 0; dx < decoW(id); dx++) for (let dy = 0; dy < decoH(id); dy++) {
+    const tx = x + dx, ty = y + dy; if (!inMap(tx, ty)) continue;
+    const t = tile(tx, ty);
+    if (t.d && t.d !== ignore && G.deco[t.d]) storeDeco(t.d);
+    if (t.c) doAction(tx, ty, t.p >= 1 ? 'harvest' : 'remove');
+  }
 }
 // Nach Größen-Änderungen (Update 7): Felder aller Deko neu belegen; was nicht mehr passt, kommt kostenlos ins Lager.
 function refitDeco() {
@@ -640,8 +665,8 @@ function refitDeco() {
     for (let dx = 0; dx < decoW(d.t); dx++) for (let dy = 0; dy < decoH(d.t); dy++) tile(d.x + dx, d.y + dy).d = d.id;
   }
 }
-function decoOK(id, x, y, ignore) {
-  for (let dx = 0; dx < decoW(id); dx++) for (let dy = 0; dy < decoH(id); dy++) if (!decoTileOK(id, x + dx, y + dy, ignore)) return false;
+function decoOK(id, x, y, ignore, rep = false) {
+  for (let dx = 0; dx < decoW(id); dx++) for (let dy = 0; dy < decoH(id); dy++) if (!decoTileOK(id, x + dx, y + dy, ignore, rep)) return false;
   return true;
 }
 function addDecoAt(id, x, y, extra = {}) {
@@ -652,9 +677,11 @@ function addDecoAt(id, x, y, extra = {}) {
 }
 // aus dem Lager aufstellen (frei) – oder direkt kaufen und aufstellen (Wege/Zäune, je Feld)
 function placeDeco(id, x, y, extra) {
-  if (!decoOK(id, x, y)) return 0;
+  const rep = decoReplaces(id);
+  if (!decoOK(id, x, y, undefined, rep)) return 0;
   if ((G.decoStore[id] || 0) > 0) G.decoStore[id]--;
   else if (!payDeco(id)) return 0;
+  if (rep) clearForDeco(id, x, y);
   const n = addDecoAt(id, x, y, extra);
   sfx(decoKind(id) === 'path' ? 'plow' : 'build');
   fxDust((x + decoW(id) / 2) * TILE, (y + decoH(id) / 2) * TILE, '#ffe9a8', 10);
@@ -668,7 +695,8 @@ function storeDeco(n) { // kostenlos ins Lager
   G.decoStore[d.t] = (G.decoStore[d.t] || 0) + 1; sfx('click');
 }
 function moveDeco(n, x, y) {
-  const d = G.deco[n]; if (!d || !decoOK(d.t, x, y, n)) return false;
+  const d = G.deco[n], rep = d && decoReplaces(d.t); if (!d || !decoOK(d.t, x, y, n, rep)) return false;
+  if (rep) clearForDeco(d.t, x, y, n);
   removeDecoTiles(d); d.x = x; d.y = y;
   for (let dx = 0; dx < decoW(d.t); dx++) for (let dy = 0; dy < decoH(d.t); dy++) { const t = tile(x + dx, y + dy); t.d = n; if (t.s === 'soil' && !t.c) t.s = 'grass'; }
   sfx('build'); return true;

@@ -1,7 +1,7 @@
 // ===== Spieldaten: hier wird das Balancing eingestellt =====
 'use strict';
 
-const GAME_VERSION = '7.2 (10.11.2026)'; // im Spielstand-Fenster sichtbar – so sieht man am Handy, ob die neue Version da ist
+const GAME_VERSION = '7.3 (10.11.2026)'; // im Spielstand-Fenster sichtbar – so sieht man am Handy, ob die neue Version da ist
 const TILE = 48;           // Pixel pro Kachel (Welt-Koordinaten)
 // Update 6: neue, größere Karte aus dem Hof-Plan der Werkstatt (vorher 24 × 16)
 const MAP_W = 40;          // Kacheln breit (Hof)

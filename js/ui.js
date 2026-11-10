@@ -198,9 +198,10 @@ function renderUI() {
     setHtml($('#placeinfo'), `${d.icon} <b>${d.name}</b> · 💰 ${fmt(d.cost)}${ok ? '' : ' · <span class="miss">hier kein Platz</span>'}`);
     $('#placeok').disabled = !ok || G.money < d.cost; $('#placeok').hidden = false; $('#placeok').textContent = '✔ Bauen';
   } else if (S.decoPlace) {
-    const id = S.decoPlace.id, d = DECO[id], paint = isPaintDeco(), ok = S.hover && decoOK(id, S.hover.x, S.hover.y, S.decoPlace.move);
+    const id = S.decoPlace.id, d = DECO[id], paint = isPaintDeco(), ok = S.hover && decoOK(id, S.hover.x, S.hover.y, S.decoPlace.move, decoReplaces(id));
+    const rp = ok && !paint ? decoReplaced(id, S.hover.x, S.hover.y, S.decoPlace.move) : [];
     const cost = S.decoPlace.move ? 'verschieben' : (G.decoStore[id] > 0 ? 'aus dem Lager' : '💰 ' + fmt(d.price) + (paint ? ' je Feld' : ''));
-    setHtml($('#placeinfo'), `🌼 <b>${d.name}</b> · ${cost}${paint ? ' · über die Felder ziehen' : ok ? '' : ' · <span class="miss">hier nicht</span>'}`);
+    setHtml($('#placeinfo'), `🌼 <b>${d.name}</b> · ${cost}${paint ? ' · über die Felder ziehen' : !ok ? ' · <span class="miss">hier nicht</span>' : rp.length ? ' · ersetzt ' + rp.join(', ') : ''}`);
     $('#placeok').hidden = paint; $('#placeok').disabled = !ok; $('#placeok').textContent = '✔ Aufstellen';
   }
 

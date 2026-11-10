@@ -32,7 +32,7 @@ function confirmDeco() {
     return;
   }
   const n = placeDeco(dp.id, h.x, h.y);
-  if (!n) { toast(!decoOK(dp.id, h.x, h.y) ? decoWhyNot(dp.id, h.x, h.y) : 'Nicht genug Geld!', 'bad'); return; }
+  if (!n) { toast(!decoOK(dp.id, h.x, h.y, undefined, decoReplaces(dp.id)) ? decoWhyNot(dp.id, h.x, h.y) : 'Nicht genug Geld!', 'bad'); return; }
   S.decoPlace = null; S.hover = null;
   if (decoKind(G.deco[n].t) === 'sign') askSignText(n);
   else toast(DECO[G.deco[n].t].name + ' aufgestellt! 🌼', 'good');

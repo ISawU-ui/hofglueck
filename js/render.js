@@ -1033,7 +1033,7 @@ function drawHover(T) {
   const h = S.hover;
   if (S.decoPlace) { // Deko-Vorschau: halb durchsichtig, grün = passt, rot = geht hier nicht
     if (!h) return;
-    const id = S.decoPlace.id, ok = decoOK(id, h.x, h.y, S.decoPlace.move);
+    const id = S.decoPlace.id, ok = decoOK(id, h.x, h.y, S.decoPlace.move, decoReplaces(id));
     if (decoKind(id) !== 'path') drawDeco({ id: 0, t: id, x: h.x, y: h.y, text: S.decoPlace.text }, T, 0.75);
     footRect(h.x, h.y, decoW(id), decoH(id), ok, T);
     return;
