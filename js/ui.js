@@ -127,7 +127,7 @@ function handleAct(act, arg) {
     case 'newsdone': G.seen = NEWS_VERSION; G.moved = null; save(); closeModal(); break;
     case 'reset': resetGame(); closeModal(); resetCam(); showIntro(0); break;
     case 'slot': pickSlot(+arg); break;
-    case 'slotdel': { const cur = +arg === slot; deleteSlot(+arg); if (cur) { S.placing = null; S.decoPlace = null; resetCam(); toast('Spielstand ' + arg + ' gelöscht – neuer Hof!', 'good'); } openSlots(slotsAtStart); break; }
+    case 'slotdel': { const cur = +arg === slot; deleteSlot(+arg); if (cur) { S.placing = null; S.decoPlace = null; resetCam(); toast(+arg === TEST_SLOT ? '🧪 Testhof zurückgesetzt' : 'Spielstand ' + arg + ' gelöscht – neuer Hof!', 'good'); } openSlots(slotsAtStart); break; }
     case 'gotab': closeModal(); openTab(arg); break;
     case 'close': closeModal(); break;
   }
@@ -170,7 +170,7 @@ function confirmPlace() {
 
 // ---------- regelmäßiges Aktualisieren ----------
 function renderUI() {
-  $('#money').textContent = fmt(G.money);
+  $('#money').textContent = G.test ? '∞ Test' : fmt(G.money);
   $('#level').textContent = G.level;
   const need = xpForLevel(G.level);
   $('#xpfill').style.width = Math.min(100, (G.xp / need) * 100) + '%';
@@ -503,6 +503,13 @@ function openSlots(atStart, away) {
     if (info) h += `<button class="ghost danger" data-act="slotdel:${n}" data-confirm="${cur ? 'Neu anfangen?' : 'Löschen?'}" title="${cur ? 'Diesen Hof löschen und neu anfangen' : 'Spielstand löschen'}">🗑️</button>`;
     h += `<button data-act="slot:${n}">${cur ? (atStart ? 'Weiterspielen' : 'Zurück') : info ? 'Laden' : 'Neues Spiel'}</button></div></div>`;
   }
+  { // Testmodus: alles freigeschaltet, unendlich Geld – eigener Platz, die echten Spielstände bleiben unberührt
+    const info = slotInfo(TEST_SLOT), cur = slot === TEST_SLOT;
+    h += `<div class="slot test${cur ? ' cur' : ''}"><div class="sn">🧪</div><div class="si"><b>Testmodus${cur ? ' <em>aktiv</em>' : ''}</b>`;
+    h += `<small>Level ${TEST_LEVEL}, alles freigeschaltet, unendlich Geld · zum Ausprobieren, zählt nicht</small></div><div class="sb">`;
+    if (info) h += `<button class="ghost danger" data-act="slotdel:${TEST_SLOT}" data-confirm="Zurücksetzen?" title="Testhof frisch anfangen">🗑️</button>`;
+    h += `<button data-act="slot:${TEST_SLOT}">${cur ? (atStart ? 'Weitertesten' : 'Zurück') : 'Testen'}</button></div></div>`;
+  }
   h += '</div><p class="small">🗑️ löscht einen Spielstand (zweimal tippen). Beim aktiven Hof heißt das: neu anfangen.<br><span style="opacity:.6">Spiel-Version ' + GAME_VERSION + '</span></p></div>';
   openModal(h, atStart ? 'slotstart' : 'slots');
 }
@@ -512,7 +519,7 @@ function pickSlot(n) {
   const away = switchSlot(n);
   S.placing = null; S.hover = null; S.tool = 'weizen';
   closeDrawer(); closeModal(); resetCam();
-  toast('💾 Spielstand ' + n + (G.introDone ? ' geladen' : ': neuer Hof'), 'good');
+  toast(n === TEST_SLOT ? '🧪 Testmodus: alles frei, unendlich Geld' : '💾 Spielstand ' + n + (G.introDone ? ' geladen' : ': neuer Hof'), 'good');
   greet(away);
 }
 

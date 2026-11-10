@@ -20,6 +20,8 @@ button { font: inherit; cursor: pointer; touch-action: manipulation; -webkit-tap
 .xpbar { position: relative; width: 170px; height: 18px; background: rgba(0,0,0,.35); border-radius: 9px; overflow: hidden; }
 .xpbar i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(#8fe0ff, #3aa8e0); transition: width .3s; }
 .xpbar span { position: relative; display: block; text-align: center; font-size: 11px; line-height: 18px; font-weight: 700; text-shadow: 0 1px 2px #000; }
+/* Ziel-Leiste oben ausgeblendet (Marvins Wunsch) – Platz bleibt, damit die Knöpfe rechts stehen bleiben */
+#goal { visibility: hidden; pointer-events: none; }
 #goal { flex: 1; font-size: 13px; background: rgba(255,248,231,.92); color: var(--ink); border-radius: 10px; padding: 6px 12px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .iconbtn { background: rgba(0,0,0,.25); border: 0; border-radius: 10px; font-size: 18px; padding: 5px 9px; color: #fff; line-height: 1; }
@@ -283,3 +285,9 @@ img.pix { image-rendering: pixelated; image-rendering: crisp-edges; }
 .trader-talk { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .trader-talk img { image-rendering: pixelated; flex: 0 0 auto; }
 .trader-talk p { margin: 0; }
+
+/* Zoom-Knöpfe nur am PC – am Handy/Tablet zoomt man mit zwei Fingern */
+@media (hover: none) and (pointer: coarse) { #zoombtns { display: none; } }
+/* Testmodus im Spielstand-Fenster */
+.slot.test { border-style: dashed; background: #f3ecff; }
+.slot.test .sn { background: #9b4dca; color: #fff; }

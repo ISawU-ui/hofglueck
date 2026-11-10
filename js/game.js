@@ -63,9 +63,21 @@ function startDeco() {
 // Platz 1 benutzt den alten Schlüssel → bestehende Spielstände sind automatisch „Spielstand 1“.
 const SLOT_KEY = 'farmspiel_slot';
 const SLOTS = 3;
+// Testmodus (für Marvin zum Ausprobieren): eigener Speicherplatz, höchstes Level, alles freigeschaltet, unendlich Geld.
+// Die echten Spielstände 1–3 werden dabei nie angefasst.
+const TEST_SLOT = 9, TEST_LEVEL = 30, TEST_MONEY = 999999999;
 let slot = 1;
-try { slot = Math.min(SLOTS, Math.max(1, parseInt(localStorage.getItem(SLOT_KEY), 10) || 1)); } catch (e) {}
-const slotKey = (n) => n === 1 ? SAVE_KEY : SAVE_KEY + '_s' + n;
+try { const v = parseInt(localStorage.getItem(SLOT_KEY), 10) || 1; slot = v === TEST_SLOT ? TEST_SLOT : Math.min(SLOTS, Math.max(1, v)); } catch (e) {}
+const slotKey = (n) => n === 1 ? SAVE_KEY : n === TEST_SLOT ? SAVE_KEY + '_test' : SAVE_KEY + '_s' + n;
+// Testhof: höchstes Level, alle Waren reichlich, Freischalt-Bedingungen erfüllt, Einführung übersprungen
+function applyTestMode(fresh) {
+  G.test = true; G.money = TEST_MONEY; G.introDone = true; G.seen = NEWS_VERSION; G.tutSkip = true;
+  if (G.level < TEST_LEVEL) { G.level = TEST_LEVEL; G.xp = 0; }
+  if (fresh) {
+    for (const id of Object.keys(ITEMS)) G.inv[id] = Math.max(G.inv[id] || 0, 999);
+    G.stats.fished = Math.max(G.stats.fished, 999); G.stats.boated = Math.max(G.stats.boated, 99);
+  }
+}
 function slotInfo(n) {
   try {
     const raw = localStorage.getItem(slotKey(n)); if (!raw) return null;
@@ -81,7 +93,7 @@ function switchSlot(n) { // speichert den aktuellen Hof und lädt Platz n (leer 
 // Spielstand löschen: ein anderer Platz wird einfach leer, der aktive beginnt sofort neu
 function deleteSlot(n) {
   try { localStorage.removeItem(slotKey(n)); } catch (e) {}
-  if (n === slot) { newGame(); rebuildBoost(); save(); }
+  if (n === slot) { newGame(); if (n === TEST_SLOT) applyTestMode(true); rebuildBoost(); save(); }
 }
 
 function save() {
@@ -92,7 +104,7 @@ function save() {
 function load() {
   let raw = null;
   try { raw = localStorage.getItem(slotKey(slot)); } catch (e) {}
-  if (!raw) { newGame(); return 0; }
+  if (!raw) { newGame(); if (slot === TEST_SLOT) applyTestMode(true); return 0; }
   try {
     G = JSON.parse(raw);
     const fresh = G; newGame(); const def = G; G = fresh;
@@ -110,6 +122,7 @@ function load() {
   } catch (e) { console.error(e); newGame(); return 0; }
   if (!Number.isFinite(G.money)) G.money = 0;
   if (!Number.isFinite(G.xp)) G.xp = 0;
+  if (slot === TEST_SLOT) applyTestMode(false); else G.test = false;
   boostMap = null;
   // Offline-Fortschritt: alles wächst weiter, solange man weg war (max. 8 Stunden)
   const away = Math.max(0, Math.min((Date.now() - G.lastSave) / 1000, 8 * 3600));
@@ -214,6 +227,7 @@ function rebuildBoost() {
 // ---------- Zeit vergeht ----------
 function update(dt) {
   if (!boostMap) rebuildBoost();
+  if (G.test) G.money = TEST_MONEY; // Testmodus: Geld geht nie aus
   const gm = growMul();
   for (let i = 0; i < G.tiles.length; i++) {
     const t = G.tiles[i];
@@ -791,7 +805,7 @@ const TUTORIAL = [
   { text: () => 'Kaufe ein neues Landstück: ' + TAP().toLowerCase() + ' auf ein Holzschild am Zaun', done: () => G.stats.parcels >= 1, target: 'parcel' },
   { text: () => 'Mach deinen Hof schön: Kaufe im 🌼 Deko-Reiter deine erste Deko', done: () => decoCount() >= 5 || Object.values(G.deco).some((d) => !['fass', 'schubkarre', 'kisten', 'lilie'].includes(d.t)), target: 'deko' },
 ];
-const tutorialStep = () => TUTORIAL.find((s) => !s.done());
+const tutorialStep = () => (G.tutSkip ? null : TUTORIAL.find((s) => !s.done()));
 function currentGoal() {
   const step = tutorialStep();
   if (step) return step.text();
