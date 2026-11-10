@@ -219,11 +219,11 @@ const HOUSE_FOOT = { x: 6.6, y: 6.25 };
 // Enten auf dem See: die Familie zieht gemeinsam eine Bahn mitten im See (weit weg von Steg und Boot).
 // Die Küken bleiben in der Gruppe, schwimmen darin aber durcheinander und aneinander vorbei – ohne sich zu überlappen.
 function duckFlock(T) {
-  const path = (t) => { const a = t * 0.05; return { x: (6.0 + Math.cos(a) * 3.4) * TILE, y: (24.2 + Math.sin(a) * 1.0) * TILE }; };
+  const path = (t) => { const a = t * 0.035; return { x: (6.0 + Math.cos(a) * 3.4) * TILE, y: (24.2 + Math.sin(a) * 1.0) * TILE }; };
   const at = (t) => {
     const c = path(t), n = Math.min(12, 3 * petN('kueken')), out = [{ x: c.x, y: c.y, kid: false, i: 0 }];
     for (let i = 0; i < n; i++) { // jedes Küken kreist langsam auf seiner eigenen Bahn um die Mutter
-      const ph = i * 2.399, sp = 0.35 + (i % 4) * 0.09, r = 14 + (i % 3) * 7;
+      const ph = i * 2.399, sp = 0.1 + (i % 4) * 0.03, r = 14 + (i % 3) * 7; // langsam, gemütlich
       out.push({ x: c.x + Math.cos(T * 0 + t * sp + ph) * r * 1.3, y: c.y + 6 + Math.sin(t * sp * 1.3 + ph) * r * 0.45, kid: true, i: i + 1 });
     }
     for (let it = 0; it < 4; it++) for (let a = 0; a < out.length; a++) for (let b = a + 1; b < out.length; b++) { // nicht überlappen
@@ -232,7 +232,7 @@ function duckFlock(T) {
     }
     return out;
   };
-  const now = at(T), before = at(T - 0.12);
+  const now = at(T), before = at(T - 0.6);
   now.forEach((e, k) => { e.left = e.x - before[k].x > 0; }); // Blickrichtung = Schwimmrichtung
   // zweite Ente schwimmt für sich im rechten Teil des Sees
   const a2 = T * 0.035 + 3, x2 = (12.4 + Math.cos(a2) * 2.3) * TILE, y2 = (25.4 + Math.sin(a2) * 0.7) * TILE;
@@ -297,11 +297,15 @@ function farmObjects(list, T) {
   }
   // Enten auf dem See, mit Küken dahinter
   for (const e of duckFlock(T)) add(e.y, e.kid
-    ? () => SCN.danim(ctx, 'kueken_r', Math.floor(T * 8 + e.i), Math.round(e.x), Math.round(e.y + 2), e.left)
+    ? () => SCN.danim(ctx, 'kueken_r', Math.floor(T * 4 + e.i), Math.round(e.x), Math.round(e.y + 2), e.left)
     : () => spr(ctx, 'ente_schwimm', Math.floor(T * 6) + e.i, Math.round(e.x), Math.round(e.y), e.left));
   // Esel grast auf der Uferwiese
-  for (let i = 0; i < petN('esel'); i++) { // mehrere Esel: jeder auf seiner Spur und mit eigenem Takt
-    const q = (T * (0.012 + i * 0.002) + i * 0.37) % 2, back = q > 1, u = back ? 2 - q : q, ex = (15.5 + u * 20) * TILE, ey = (21.9 + (i % 3) * 0.35) * TILE, still = Math.sin(T * 0.4 + i * 1.7) > 0.6;
+  // Esel grasen auf verschiedenen Wiesen des Hofs (nicht alle unten): jeder hat seine Wiese, geht hin und her und bleibt ab und zu stehen
+  const MEADOWS = [[15.5, 35.5, 22.3], [14.8, 27.0, 4.75], [2.0, 5.6, 15.6], [15.5, 35.5, 21.8], [2.2, 5.4, 16.6]]; // [x von, x bis, y] in Feldern
+  for (let i = 0; i < petN('esel'); i++) {
+    const [x0, x1, my] = MEADOWS[i % MEADOWS.length], len = x1 - x0, sp = 0.24 / len; // 0,24 Felder pro Sekunde
+    const q = (T * sp + i * 0.37) % 2, back = q > 1, u = back ? 2 - q : q, still = Math.sin(T * 0.4 + i * 1.7) > 0.6;
+    const ex = (x0 + u * len) * TILE, ey = my * TILE;
     add(ey, () => SCN.danim(ctx, back ? 'esel_l' : 'esel_r', still ? 0 : Math.floor(T * 7 + i), Math.round(ex), Math.round(ey)));
   }
 }

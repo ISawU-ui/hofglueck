@@ -1,7 +1,7 @@
 // ===== Spieldaten: hier wird das Balancing eingestellt =====
 'use strict';
 
-const GAME_VERSION = '7.5 (10.11.2026)'; // im Spielstand-Fenster sichtbar – so sieht man am Handy, ob die neue Version da ist
+const GAME_VERSION = '7.6 (10.11.2026)'; // im Spielstand-Fenster sichtbar – so sieht man am Handy, ob die neue Version da ist
 const TILE = 48;           // Pixel pro Kachel (Welt-Koordinaten)
 // Update 6: neue, größere Karte aus dem Hof-Plan der Werkstatt (vorher 24 × 16)
 const MAP_W = 40;          // Kacheln breit (Hof)
@@ -273,7 +273,7 @@ const DECO = {
   katze:        { name: 'Hofkatze mit Kratzbaum', cat: 'leben', lv: 6, price: 900, kind: 'pet', spr: 'd_katze', note: 'Kratzbaum an der Scheune, die Katze streift über den Hof' },
   kueken:       { name: 'Entenküken',     cat: 'leben',  lv: 8,  price: 350,  kind: 'pet', spr: 'd_kueken', note: 'Schwimmen der Entenmama auf dem See hinterher' },
   kraehe:       { name: 'Krähen',         cat: 'leben',  lv: 6,  price: 0,    kind: 'pet', spr: 'd_kraehe', free: 'vogelscheuche', note: 'Kommen von allein, sobald eine Vogelscheuche steht' },
-  esel:         { name: 'Esel',           cat: 'leben',  lv: 11, price: 2600, kind: 'pet', spr: 'd_esel', building: 'pferdestall', unlockText: 'mit Pferdestall', note: 'Grast auf der Uferwiese' },
+  esel:         { name: 'Esel',           cat: 'leben',  lv: 11, price: 2600, kind: 'pet', spr: 'd_esel', building: 'pferdestall', unlockText: 'mit Pferdestall', note: 'Grast auf den Wiesen rund um den Hof' },
   sandweg:      { name: 'Sandweg',        cat: 'wege', lv: 1,  price: 5,  kind: 'path', spr: 'd_sandweg' },
   pfl_kies:     { name: 'Kies',           cat: 'wege', lv: 3,  price: 8,  kind: 'path', spr: 'd_pfl_kies' },
   pfl_kopf:     { name: 'Kopfsteinpflaster', cat: 'wege', lv: 4, price: 12, kind: 'path', spr: 'd_pfl_kopf' },
