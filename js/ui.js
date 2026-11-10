@@ -79,22 +79,27 @@ function initUI() {
 
 function handleAct(act, arg) {
   switch (act) {
-    case 'tool': S.tool = arg; S.placing = null; sfx('click'); break;
+    case 'tool': S.tool = arg; S.placing = null; S.moveB = null; sfx('click'); break;
     case 'build': startPlacing(arg); break;
     case 'placeok': if (S.decoPlace) confirmDeco(); else confirmPlace(); break;
-    case 'placecancel': S.placing = null; S.decoPlace = null; S.hover = null; break;
+    case 'placecancel': S.placing = null; S.moveB = null; S.decoPlace = null; S.hover = null; break;
     case 'decobuy': decoBuy(arg); break;
     case 'decoplace': startDecoPlace(arg); break;
     case 'decopaint': startDecoPlace(arg); break;
     case 'decomove': { const d = G.deco[+arg]; closeModal(); if (d) { S.decoPlace = { id: d.t, move: d.id, text: d.text }; S.hover = { x: d.x, y: d.y }; closeDrawer(); toast(isTouch() ? 'Tippe oder ziehe dorthin, wo es stehen soll – dann ✔' : 'Klicke dorthin, wo es stehen soll (Esc = abbrechen)'); } break; }
     case 'decostore': storeDeco(+arg); closeModal(); toast('Ins Lager gelegt 📦'); break;
     case 'decotext': askSignText(+arg); break;
-    case 'signsave': { const inp = document.getElementById('signtext'); setSignText(+arg, inp ? inp.value : ''); closeModal(); toast('Schild beschriftet ✍️', 'good'); break; }
+    case 'signsave': {
+      const inp = document.getElementById('signtext'), val = inp ? inp.value : '';
+      if (String(arg).startsWith('neu-')) { closeModal(); startDecoPlace(String(arg).slice(4), val); break; }
+      const note = setSignText(+arg, val); closeModal(); toast(note || 'Schild beschriftet ✍️', note ? 'bad' : 'good'); break;
+    }
+    case 'decoreplaceok': closeModal(); confirmDeco(true); break;
     case 'pet': if (buyPet(arg)) { toast(DECO[arg].name + ' ist da! ' + (DECO[arg].note || ''), 'good'); confetti(); } break;
     case 'trader': if (buyTrader()) { closeModal(); toast('Gekauft! Liegt im 🌼 Deko-Lager.', 'good'); confetti(); } break;
     case 'housepart': { const [k, id] = arg.split(':'); if (!buyHousePart(k, id)) toast('Noch nicht möglich', 'bad'); openHouse(true); break; }
     case 'car': if (!buyCar(arg)) toast('Noch nicht möglich', 'bad'); openCars(true); break;
-    case 'carnone': G.car.cur = null; openCars(true); break;
+    case 'carnone': G.car.cur = null; G.car.cur2 = null; openCars(true); break;
     case 'mineopen': if (openMine()) { toast('⛏️ Der Stollen ist frei! Hau rein.', 'good'); confetti(); } openMinePanel(); break;
     case 'minehit': mineHit(); break;
     case 'sell': sell(arg, 1); break;
@@ -120,6 +125,7 @@ function handleAct(act, arg) {
       break;
     }
     case 'askdemolish': askDemolish(+arg); break;
+    case 'bmove': { const b = G.buildings[+arg]; closeModal(); if (b) { S.decoPlace = null; S.placing = b.type; S.moveB = b.id; S.hover = { x: b.x, y: b.y }; closeDrawer(); toast(isTouch() ? 'Tippe oder ziehe dorthin, wo es stehen soll – dann ✔' : 'Klicke dorthin, wo es stehen soll (Esc = abbrechen)'); } break; }
     case 'demolish': demolish(+arg); closeModal(); break;
     case 'fish': fishTap(); break;
     case 'intro': showIntro(+arg); break;
@@ -143,7 +149,7 @@ function closeDrawer() {
 
 // ---------- Bauen mit Vorschau ----------
 function startPlacing(type) {
-  S.placing = type; closeDrawer();
+  S.placing = type; S.moveB = null; closeDrawer();
   S.hover = findSpot(type);
   toast(isTouch() ? 'Tippe oder ziehe dorthin, wo es stehen soll – dann ✔ Bauen' : 'Klicke auf freies Land, um zu bauen (Esc = abbrechen)');
 }
@@ -161,6 +167,11 @@ function findSpot(type) {
 function confirmPlace() {
   const type = S.placing, h = S.hover;
   if (!type || !h) return;
+  if (S.moveB) { // verschieben statt neu bauen
+    if (moveBuilding(S.moveB, h.x, h.y)) { toast(BUILDINGS[type].name + ' verschoben ✔', 'good'); S.placing = null; S.moveB = null; S.hover = null; }
+    else toast('Hier ist kein Platz (nur auf freiem, eigenem Land).', 'bad');
+    return;
+  }
   if (placeBuilding(type, h.x, h.y)) {
     const d = BUILDINGS[type];
     toast(d.name + (d.kind === 'tree' ? ' gepflanzt! Die Früchte wachsen von allein.' : ' gebaut! Tippe darauf, um zu starten.'), 'good');
@@ -194,12 +205,12 @@ function renderUI() {
   const pb = $('#placebar');
   pb.hidden = !S.placing && !S.decoPlace;
   if (S.placing) {
-    const d = BUILDINGS[S.placing], ok = S.hover && canPlace(S.placing, S.hover.x, S.hover.y);
-    setHtml($('#placeinfo'), `${d.icon} <b>${d.name}</b> · 💰 ${fmt(d.cost)}${ok ? '' : ' · <span class="miss">hier kein Platz</span>'}`);
-    $('#placeok').disabled = !ok || G.money < d.cost; $('#placeok').hidden = false; $('#placeok').textContent = '✔ Bauen';
+    const d = BUILDINGS[S.placing], mv = !!S.moveB, ok = S.hover && canPlace(S.placing, S.hover.x, S.hover.y, S.moveB);
+    setHtml($('#placeinfo'), `${d.icon} <b>${d.name}</b> · ${mv ? 'verschieben' : '💰 ' + fmt(d.cost)}${ok ? '' : ' · <span class="miss">hier kein Platz</span>'}`);
+    $('#placeok').disabled = !ok || (!mv && G.money < d.cost); $('#placeok').hidden = false; $('#placeok').textContent = mv ? '✔ Hierhin' : '✔ Bauen';
   } else if (S.decoPlace) {
-    const id = S.decoPlace.id, d = DECO[id], paint = isPaintDeco(), ok = S.hover && decoOK(id, S.hover.x, S.hover.y, S.decoPlace.move, decoReplaces(id));
-    const rp = ok && !paint ? decoReplaced(id, S.hover.x, S.hover.y, S.decoPlace.move) : [];
+    const id = S.decoPlace.id, d = DECO[id], paint = isPaintDeco(), tx = S.decoPlace.text, ok = S.hover && decoOK(id, S.hover.x, S.hover.y, S.decoPlace.move, decoReplaces(id), tx);
+    const rp = ok && !paint ? decoReplaced(id, S.hover.x, S.hover.y, S.decoPlace.move, tx) : [];
     const cost = S.decoPlace.move ? 'verschieben' : (G.decoStore[id] > 0 ? 'aus dem Lager' : '💰 ' + fmt(d.price) + (paint ? ' je Feld' : ''));
     setHtml($('#placeinfo'), `🌼 <b>${d.name}</b> · ${cost}${paint ? ' · über die Felder ziehen' : !ok ? ' · <span class="miss">hier nicht</span>' : rp.length ? ' · ersetzt ' + rp.join(', ') : ''}`);
     $('#placeok').hidden = paint; $('#placeok').disabled = !ok; $('#placeok').textContent = '✔ Aufstellen';
@@ -374,6 +385,7 @@ function openBuilding(id, refresh) {
   if (refresh) { for (const k in parts) setHtml(document.getElementById(k), parts[k]); return; }
   openModal(`<h2>${d.icon} ${d.name}</h2><div class="status" id="mbstatus"></div><div class="row" id="mbbtns"></div><div id="mbextra"></div>
     <div class="row"><button class="ghost" data-act="close">Schließen</button></div>
+    <div class="row"><button class="ghost" data-act="bmove:${id}">↔️ Verschieben</button></div>
     <button class="linkbtn" data-act="askdemolish:${id}">${d.kind === 'tree' ? '🪓 Fällen …' : '🔨 Abreißen …'}</button>`, 'building');
   for (const k in parts) { lastHtml[k] = null; setHtml(document.getElementById(k), parts[k]); }
 }
@@ -601,10 +613,14 @@ function decoCard(id) {
   const d = DECO[id], k = decoKind(id), lock = decoUnlocked(id) ? '' : decoLockText(id), store = G.decoStore[id] || 0;
   const need = Object.keys(decoNeed(id)).length ? ' + ' + itemList(decoNeed(id), true) : '';
   const price = d.price ? '💰 ' + fmt(d.price) + (k === 'path' || k === 'fence' ? '/Feld' : '') : 'geschenkt';
-  const size = k === 'path' || k === 'fence' ? 'je Feld' : k === 'pet' ? '' : decoW(id) + '×' + decoH(id);
+  const size = k === 'path' || k === 'fence' ? 'je Feld' : k === 'pet' ? '' : k === 'sign' ? '1–2 Felder' : decoW(id) + '×' + decoH(id);
   let btn;
-  if (k === 'pet') btn = G.pets[id] ? '<button disabled>✔ Da</button>' : d.free ? `<button disabled>${decoUnlocked(id) ? '✔ Da' : 'Vogelscheuche'}</button>`
-    : `<button data-act="pet:${id}" ${lock || !decoAffordable(id) ? 'disabled' : ''}>${lock || price}</button>`;
+  if (k === 'pet') {
+    const n = petN(id), max = PET_MAX[id] || 1;
+    btn = d.free ? `<button disabled>${decoUnlocked(id) ? '✔ Da' : 'Vogelscheuche'}</button>`
+      : n >= max ? `<button disabled>✔ ${n} von ${max}</button>`
+      : `<button data-act="pet:${id}" ${lock || !decoAffordable(id) ? 'disabled' : ''}>${lock || (n ? price + ' · ' + n + ' da' : price)}</button>`;
+  }
   else if (lock) btn = `<button disabled>${lock}</button>`;
   else btn = `<button data-act="decoplace:${id}" ${store || decoAffordable(id) ? '' : 'disabled'}>${store ? 'Aufstellen' : k === 'path' || k === 'fence' ? 'Verlegen' : 'Kaufen'}</button>`;
   return `<div class="dcard ${lock ? 'locked' : ''}"><div class="dimg">${decoImg(id)}</div><b>${d.name}</b>
@@ -628,20 +644,22 @@ function decoHtml() {
   }
   return h;
 }
-function findDecoSpot(id) {
+function findDecoSpot(id, text) {
   const c = availCenter(), w = screenToWorld(c.x, c.y);
   let best = null, bd = 1e9;
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
-    if (!decoOK(id, x, y)) continue;
+    if (!decoOK(id, x, y, undefined, false, text)) continue;
     const dd = Math.hypot((x + 0.5) * TILE - w.x, (y + 0.5) * TILE - w.y); if (dd < bd) { bd = dd; best = { x, y }; }
   }
   return best;
 }
-function startDecoPlace(id) {
+function startDecoPlace(id, text) {
   if (!(G.decoStore[id] > 0) && !decoAffordable(id)) { toast('Nicht genug Geld!', 'bad'); return; }
-  S.placing = null; S.decoPlace = { id }; closeDrawer(); closeModal();
+  // Schilder: erst den Text eingeben – davon hängt ab, ob das Schild 1 oder 2 Felder breit ist
+  if (decoKind(id) === 'sign' && text === undefined) { askSignText(null, id); return; }
+  S.placing = null; S.decoPlace = { id, text: decoKind(id) === 'sign' ? signFit(id, text) : undefined }; closeDrawer(); closeModal();
   const paint = ['path', 'fence'].includes(decoKind(id));
-  S.hover = paint ? null : findDecoSpot(id);
+  S.hover = paint ? null : findDecoSpot(id, S.decoPlace.text);
   toast(paint ? (isTouch() ? 'Wische über die Felder, um zu verlegen – ✖ beendet' : 'Klicke oder ziehe über die Felder (Esc beendet)')
     : isTouch() ? 'Tippe oder ziehe dorthin, wo es stehen soll – dann ✔' : 'Klicke dorthin, wo es stehen soll (Esc = abbrechen)');
 }
@@ -653,12 +671,13 @@ function openDecoMenu(n) {
     <div class="row">${sign ? `<button data-act="decotext:${n}">✍️ Beschriften</button>` : ''}<button data-act="decomove:${n}">↔️ Verschieben</button><button data-act="decostore:${n}">📦 Einlagern</button></div>
     <div class="row"><button class="ghost" data-act="close">Schließen</button></div>`, 'deco');
 }
-function askSignText(n) {
-  const d = G.deco[n]; if (!d) return;
-  const v = (d.text || '').replace(/"/g, '&quot;');
-  openModal(`<h2>✍️ Schild beschriften</h2><p class="small">Bis ${SIGN_MAX} Zeichen, z. B. „Kartoffeln“ oder „Omas Ecke“.</p>
-    <input id="signtext" class="textin" maxlength="${SIGN_MAX}" value="${v}" autocomplete="off" onkeydown="if(event.key==='Enter'){handleAct('signsave','${n}');renderUI();}">
-    <div class="row"><button class="ghost" data-act="close">Abbrechen</button><button data-act="signsave:${n}">Speichern</button></div>`, 'sign');
+// n = aufgestelltes Schild (Text ändern) – oder null + id = neues Schild (erst Text, dann aufstellen)
+function askSignText(n, newId) {
+  const d = n != null ? G.deco[n] : null; if (n != null && !d) return;
+  const v = ((d && d.text) || '').replace(/"/g, '&quot;'), key = d ? String(n) : 'neu-' + newId;
+  openModal(`<h2>✍️ Schild beschriften</h2><p class="small">Bis ${SIGN_MAX} Zeichen, z. B. „Eier“ oder „Omas Ecke“. Kurzer Text = 1 Feld, langer Text = 2 Felder.</p>
+    <input id="signtext" class="textin" maxlength="${SIGN_MAX}" value="${v}" autocomplete="off" onkeydown="if(event.key==='Enter'){handleAct('signsave','${key}');renderUI();}">
+    <div class="row"><button class="ghost" data-act="close">Abbrechen</button><button data-act="signsave:${key}">${d ? 'Speichern' : 'Weiter zum Aufstellen'}</button></div>`, 'sign');
   setTimeout(() => { const i = document.getElementById('signtext'); if (i) i.focus(); }, 60);
 }
 
@@ -683,11 +702,11 @@ function openHouse(refresh) {
 // ---------- Autos ----------
 function openCars(refresh) {
   if (refresh && $('#modal').dataset.kind !== 'cars') return;
-  let h = `<h2>🚗 Stellplatz</h2><p class="small">Hier steht immer genau ein Auto. Gekaufte Autos kannst du jederzeit wieder hinstellen.</p><div class="opts">`;
+  let h = `<h2>🚗 Stellplatz</h2><p class="small">Hier ist Platz für 2 Autos. Tippe ein Auto an, um es hinzustellen – oder ein abgestelltes, um es wegzufahren.</p><div class="opts">`;
   for (const [id, c] of Object.entries(CARS)) {
-    const have = G.car.have.includes(id), cur = G.car.cur === id, lock = G.level < c.lv;
+    const have = G.car.have.includes(id), cur = G.car.cur === id || G.car.cur2 === id, lock = G.level < c.lv;
     const label = cur ? '✔ steht da' : have ? 'Hinstellen' : lock ? '🔒 Lv ' + c.lv : '💰 ' + fmt(c.price);
-    h += `<button class="opt car ${cur ? 'cur' : ''}" data-act="car:${id}" ${cur || (!have && (lock || G.money < c.price)) ? 'disabled' : ''}>${iconImg('car', id)}<b>${c.name}</b><small>${c.desc}</small><small>${label}</small></button>`;
+    h += `<button class="opt car ${cur ? 'cur' : ''}" data-act="car:${id}" ${!have && (lock || G.money < c.price) ? 'disabled' : ''}>${iconImg('car', id)}<b>${c.name}</b><small>${c.desc}</small><small>${label}</small></button>`;
   }
   h += `</div><div class="row">${G.car.cur ? '<button class="ghost" data-act="carnone">Stellplatz frei machen</button>' : ''}<button class="ghost" data-act="close">Fertig</button></div>`;
   openModal(h, 'cars');

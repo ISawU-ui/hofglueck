@@ -12,7 +12,7 @@ function localPt(e) { const r = canvas.getBoundingClientRect(); return { x: e.cl
 function tileAt(pt) {
   const w = screenToWorld(pt.x, pt.y);
   if (S.placing) { const d = BUILDINGS[S.placing]; return { x: Math.floor(w.x / TILE - d.w / 2 + 0.5), y: Math.floor(w.y / TILE - d.h / 2 + 0.5) }; }
-  if (S.decoPlace) { const id = S.decoPlace.id; return { x: Math.floor(w.x / TILE - decoW(id) / 2 + 0.5), y: Math.floor(w.y / TILE - decoH(id) / 2 + 0.5) }; }
+  if (S.decoPlace) { const id = S.decoPlace.id; return { x: Math.floor(w.x / TILE - decoW(id, S.decoPlace.text) / 2 + 0.5), y: Math.floor(w.y / TILE - decoH(id) / 2 + 0.5) }; }
   return { x: Math.floor(w.x / TILE), y: Math.floor(w.y / TILE) };
 }
 // Wege und Zäune werden wie Felder „gemalt“: jedes neue Feld kostet seinen Preis
@@ -24,18 +24,29 @@ function paintDeco(x, y) {
   return placeDeco(id, x, y) > 0;
 }
 // Deko an der Vorschau-Stelle aufstellen (bzw. verschieben)
-function confirmDeco() {
+// sure = true: Nachfrage „wirklich ersetzen?“ wurde schon bestätigt
+function confirmDeco(sure) {
   const dp = S.decoPlace, h = S.hover; if (!dp || !h) return;
+  const id = dp.move ? G.deco[dp.move].t : dp.id, text = dp.move ? G.deco[dp.move].text : dp.text;
+  // steht dort schon etwas? Dann erst fragen, ob es wirklich ersetzt werden soll
+  if (!sure && decoOK(id, h.x, h.y, dp.move, true, text)) {
+    const rp = decoReplaced(id, h.x, h.y, dp.move, text);
+    if (rp.length) {
+      openModal(`<h2>🔁 Ersetzen?</h2><p>Hier steht schon: <b>${rp.join(', ')}</b>.</p>
+        <p class="small">Deko kommt kostenlos ins 📦 Lager, Pflanzen werden wie mit der Spitzhacke abgebaut (Reifes geerntet, sonst Saatgut zurück).</p>
+        <div class="row"><button class="ghost" data-act="close">Abbrechen</button><button class="gold" data-act="decoreplaceok">Ja, ${DECO[id].name} hinstellen</button></div>`, 'replace');
+      return;
+    }
+  }
   if (dp.move) {
     if (moveDeco(dp.move, h.x, h.y)) { S.decoPlace = null; S.hover = null; toast('Verschoben ✔', 'good'); }
-    else toast(decoWhyNot(G.deco[dp.move].t, h.x, h.y), 'bad');
+    else toast(decoWhyNot(id, h.x, h.y, text), 'bad');
     return;
   }
-  const n = placeDeco(dp.id, h.x, h.y);
-  if (!n) { toast(!decoOK(dp.id, h.x, h.y, undefined, decoReplaces(dp.id)) ? decoWhyNot(dp.id, h.x, h.y) : 'Nicht genug Geld!', 'bad'); return; }
+  const n = placeDeco(dp.id, h.x, h.y, dp.text !== undefined ? { text: dp.text } : {});
+  if (!n) { toast(!decoOK(dp.id, h.x, h.y, undefined, decoReplaces(dp.id), dp.text) ? decoWhyNot(dp.id, h.x, h.y, dp.text) : 'Nicht genug Geld!', 'bad'); return; }
   S.decoPlace = null; S.hover = null;
-  if (decoKind(G.deco[n].t) === 'sign') askSignText(n);
-  else toast(DECO[G.deco[n].t].name + ' aufgestellt! 🌼', 'good');
+  toast(DECO[G.deco[n].t].name + ' aufgestellt! 🌼', 'good');
 }
 
 function act(x, y) {
@@ -57,7 +68,9 @@ function tapAt(x, y) {
   const t = tile(x, y);
   if (t.b) { clickBuilding(G.buildings[t.b]); renderUI(); return; }
   if (t.d && G.deco[t.d]) { openDecoMenu(t.d); sfx('click'); return; }
-  const o = farmObjAt(x, y) || (SCN.lakeV((x + 0.5) * TILE, (y + 0.5) * TILE) > 0 ? { id: 'see' } : null);
+  let o = farmObjAt(x, y) || (SCN.lakeV((x + 0.5) * TILE, (y + 0.5) * TILE) > 0 ? { id: 'see' } : null);
+  // Wasser rund ums Boot (auch seine 🚣-Blase) gehört zum Boot, nicht zum Steg
+  if (o && o.id === 'see' && Math.hypot(x + 0.5 - 7.6, y + 0.5 - 21.6) < 2.2) o = { id: 'boot' };
   if (o) {
     switch (o.id) {
       case 'haus': openHouse(); return;
@@ -81,7 +94,7 @@ function tapAt(x, y) {
 function onGhost(pt) {
   if (!(S.placing || S.decoPlace) || !S.hover) return false;
   const w = screenToWorld(pt.x, pt.y), h = S.hover;
-  const dw = S.placing ? BUILDINGS[S.placing].w : decoW(S.decoPlace.id), dh = S.placing ? BUILDINGS[S.placing].h : decoH(S.decoPlace.id);
+  const dw = S.placing ? BUILDINGS[S.placing].w : decoW(S.decoPlace.id, S.decoPlace.text), dh = S.placing ? BUILDINGS[S.placing].h : decoH(S.decoPlace.id);
   return w.x >= h.x * TILE - 10 && w.x <= (h.x + dw) * TILE + 10 && w.y >= h.y * TILE - 10 && w.y <= (h.y + dh) * TILE + 10;
 }
 
@@ -175,7 +188,7 @@ function clickBuilding(b) {
 
 function onKey(e) {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.key !== 'Escape') return; // Schildtext tippen
-  if (e.key === 'Escape') { if (!$('#modal').hidden && $('#modal').dataset.kind !== 'slotstart') closeModal(); S.placing = null; S.decoPlace = null; closeDrawer(); renderUI(); return; }
+  if (e.key === 'Escape') { if (!$('#modal').hidden && $('#modal').dataset.kind !== 'slotstart') closeModal(); S.placing = null; S.moveB = null; S.decoPlace = null; closeDrawer(); renderUI(); return; }
   if (e.key === 's' || e.key === 'S') { handleAct('tool', 'schaufel'); renderUI(); return; }
   if (e.key === 'h' || e.key === 'H') { handleAct('tool', 'hand'); renderUI(); return; }
   if (e.key === 'Enter' && S.placing) { confirmPlace(); renderUI(); return; }
@@ -212,7 +225,7 @@ function start() {
   canvas.addEventListener('wheel', (e) => { e.preventDefault(); const p = localPt(e); zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, p.x, p.y); }, { passive: false });
   canvas.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    if (S.placing || S.decoPlace) { S.placing = null; S.decoPlace = null; renderUI(); return; }
+    if (S.placing || S.decoPlace) { S.placing = null; S.moveB = null; S.decoPlace = null; renderUI(); return; }
     const { x, y } = tileAt(localPt(e));
     if (inMap(x, y) && tile(x, y).b) openBuilding(tile(x, y).b);
     else if (inMap(x, y) && tile(x, y).d) openDecoMenu(tile(x, y).d);

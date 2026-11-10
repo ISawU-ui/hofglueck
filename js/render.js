@@ -185,7 +185,7 @@ function draw(time) {
   if (TOWN_ON && vr.x1 > TOWN_X0 * TILE) { ctx.save(); ctx.translate(0, TOWN_Y0 * TILE); drawTown(T); ctx.restore(); }
   // alles, was steht, nach Fußpunkt sortiert: Gebäude, Deko, Haus, Tiere …
   const list = [];
-  for (const b of Object.values(G.buildings)) list.push([(b.y + BUILDINGS[b.type].h) * TILE, () => drawBuilding(b, T)]);
+  for (const b of Object.values(G.buildings)) if (!(S.moveB === b.id && S.placing)) list.push([(b.y + BUILDINGS[b.type].h) * TILE, () => drawBuilding(b, T)]); // beim Verschieben nur die Vorschau zeigen
   for (const d of Object.values(G.deco)) if (decoKind(d.t) !== 'path') list.push([(d.y + decoH(d.t)) * TILE - (decoKind(d.t) === 'fence' ? 2 : 0), () => drawDeco(d, T)]);
   farmObjects(list, T);
   list.sort((a, b) => a[0] - b[0]).forEach((e) => e[1]());
@@ -216,12 +216,52 @@ function buildGround() {
 
 // ---------- Hof: Haus, Scheune, Hofladen, Hund, Katze, Auto, Händler, Tiere am See ----------
 const HOUSE_FOOT = { x: 6.6, y: 6.25 };
+// Enten auf dem See: die Familie zieht gemeinsam eine Bahn mitten im See (weit weg von Steg und Boot).
+// Die Küken bleiben in der Gruppe, schwimmen darin aber durcheinander und aneinander vorbei – ohne sich zu überlappen.
+function duckFlock(T) {
+  const path = (t) => { const a = t * 0.05; return { x: (6.0 + Math.cos(a) * 3.4) * TILE, y: (24.2 + Math.sin(a) * 1.0) * TILE }; };
+  const at = (t) => {
+    const c = path(t), n = Math.min(12, 3 * petN('kueken')), out = [{ x: c.x, y: c.y, kid: false, i: 0 }];
+    for (let i = 0; i < n; i++) { // jedes Küken kreist langsam auf seiner eigenen Bahn um die Mutter
+      const ph = i * 2.399, sp = 0.35 + (i % 4) * 0.09, r = 14 + (i % 3) * 7;
+      out.push({ x: c.x + Math.cos(T * 0 + t * sp + ph) * r * 1.3, y: c.y + 6 + Math.sin(t * sp * 1.3 + ph) * r * 0.45, kid: true, i: i + 1 });
+    }
+    for (let it = 0; it < 4; it++) for (let a = 0; a < out.length; a++) for (let b = a + 1; b < out.length; b++) { // nicht überlappen
+      const p = out[a], q = out[b], dx = q.x - p.x, dy = (q.y - p.y) * 1.8, d = Math.hypot(dx, dy) || 0.01, min = p.kid && q.kid ? 11 : 17;
+      if (d < min) { const k = (min - d) / d / 2; if (p.kid) { p.x -= dx * k; p.y -= dy * k / 1.8; } q.x += dx * k; q.y += dy * k / 1.8; }
+    }
+    return out;
+  };
+  const now = at(T), before = at(T - 0.12);
+  now.forEach((e, k) => { e.left = e.x - before[k].x > 0; }); // Blickrichtung = Schwimmrichtung
+  // zweite Ente schwimmt für sich im rechten Teil des Sees
+  const a2 = T * 0.035 + 3, x2 = (12.4 + Math.cos(a2) * 2.3) * TILE, y2 = (25.4 + Math.sin(a2) * 0.7) * TILE;
+  now.push({ x: x2, y: y2, kid: false, i: 2, left: -Math.sin(a2) > 0 });
+  return now;
+}
 // Felder, die das Hausbild bedeckt (ein Feld zählt, wenn das Bild mehr als 30 % davon überdeckt) – für Antippen und Deko-Platz
+// sichtbare Ober-/Unterkante eines Bildes (durchsichtige Ränder zählen nicht)
+function visBox(cv) {
+  if (cv._vb) return cv._vb;
+  const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; let a = cv.height, b = -1;
+  for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) if (d[(y * cv.width + x) * 4 + 3] > 200) { if (y < a) a = y; b = y; break; }
+  return (cv._vb = { top: a, bottom: b + 1 });
+}
+// Wohnhaus steht auf derselben Höhe wie die Scheune (gleiche Unterkante), sein Schild hat denselben Abstand zum Dach
+const BARN = { x: 11.3, foot: 6.15, plaque: 4.18 };
+let barnVB = null;
+function houseLayout() {
+  const hc = SCN.houseCanvas(G.house), hb = visBox(hc);
+  if (!barnVB && atlasReady) { const f = SPR.scheune[0], c = document.createElement('canvas'); c.width = f[2]; c.height = f[3]; c.getContext('2d').drawImage(ATL, f[0], f[1], f[2], f[3], 0, 0, f[2], f[3]); const v = visBox(c); barnVB = { top: BARN.foot * TILE - f[7] + f[5] + v.top, bottom: BARN.foot * TILE - f[7] + f[5] + v.bottom }; }
+  const bottom = barnVB ? barnVB.bottom : HOUSE_FOOT.y * TILE, hy = Math.round(bottom - hb.bottom), hx = Math.round(HOUSE_FOOT.x * TILE - hc.width / 2);
+  const gapTop = barnVB ? barnVB.top - BARN.plaque * TILE : 12;
+  return { hc, hx, hy, plaqueY: hy + hb.top - gapTop, top: hy + hb.top, bottom: hy + hb.bottom };
+}
 let houseRectCache = null;
 function houseRectDyn() {
   if (!SCN.ready) return null;
   const key = G.house.type; if (houseRectCache && houseRectCache.key === key) return houseRectCache.r;
-  const hc = SCN.houseCanvas(G.house), x0 = HOUSE_FOOT.x - hc.width / 2 / TILE, x1 = HOUSE_FOOT.x + hc.width / 2 / TILE, y1 = HOUSE_FOOT.y, y0 = y1 - hc.height / TILE;
+  const L = houseLayout(), hc = L.hc, x0 = HOUSE_FOOT.x - hc.width / 2 / TILE, x1 = HOUSE_FOOT.x + hc.width / 2 / TILE, y1 = L.bottom / TILE, y0 = L.top / TILE;
   const tx0 = Math.floor(x0 + 0.3), tx1 = Math.ceil(x1 - 0.3) - 1, ty0 = Math.floor(y0 + 0.3), ty1 = Math.ceil(y1 - 0.3) - 1;
   const r = { id: 'haus', x: tx0, y: ty0, w: tx1 - tx0 + 1, h: ty1 - ty0 + 1 };
   houseRectCache = { key, r }; return r;
@@ -229,23 +269,24 @@ function houseRectDyn() {
 function farmObjects(list, T) {
   const add = (y, fn) => list.push([y, fn]);
   // Wohnhaus (Haus-Ausbau): zur Mitte ausgerichtet
-  const hc = SCN.houseCanvas(G.house), hx = Math.round(HOUSE_FOOT.x * TILE - hc.width / 2), hy = Math.round(HOUSE_FOOT.y * TILE - hc.height + 2);
-  add(HOUSE_FOOT.y * TILE, () => ctx.drawImage(hc, hx, hy));
+  const HL = houseLayout();
+  add(HL.bottom, () => ctx.drawImage(HL.hc, HL.hx, HL.hy));
   add(6.15 * TILE, () => { spr(ctx, 'scheune', 0, 11.3 * TILE, 6.15 * TILE); const total = Object.values(G.inv).reduce((s2, n) => s2 + n, 0); if (total) badge(12.2 * TILE, 4.7 * TILE, total); });
   // Hundehütte + Hofhund (läuft vor dem Haus hin und her, legt sich ab und zu vor die Hütte)
   add(9.0 * TILE, () => SCN.dogHouse(ctx, 4.75 * TILE, 9.0 * TILE));
   { const q = Math.sin(T * 0.3), still = Math.abs(Math.cos(T * 0.3)) < 0.3, dx = 5.9 * TILE + (q + 1) * 1.9 * TILE, dy = 9.3 * TILE + Math.sin(T * 0.17) * 10;
     add(dy, () => spr(ctx, 'hund_lauf', still ? 0 : Math.floor(T * 10), Math.round(dx), Math.round(dy), Math.cos(T * 0.3) < 0)); }
   // Kratzbaum + Hofkatze
-  if (G.pets.katze) {
+  if (petN('katze')) {
     add(6.5 * TILE, () => SCN.catTree(ctx, 13.55 * TILE, 6.5 * TILE));
-    const c = catPos(T); add(c.y, () => (c.sit ? SCN.danim(ctx, 'katze_sitz', Math.floor(T * 4), c.x, c.y) : SCN.danim(ctx, c.dir > 0 ? 'katze_r' : 'katze_l', Math.floor(T * 9), c.x, c.y)));
+    for (let i = 0; i < petN('katze'); i++) { const c = catPos(T, i); add(c.y, () => (c.sit ? SCN.danim(ctx, 'katze_sitz', Math.floor(T * 4 + i), c.x, c.y) : SCN.danim(ctx, c.dir > 0 ? 'katze_r' : 'katze_l', Math.floor(T * 9 + i * 2), c.x, c.y))); }
   }
   // Hofladen + Auftragstafel an der Straße
   add(12.95 * TILE, () => spr(ctx, 'marktstand', 0, 11.6 * TILE, 12.95 * TILE));
   add(12.95 * TILE, () => drawBoard(13.55 * TILE, 12.95 * TILE, T));
   // Auto auf dem Stellplatz
-  if (G.car.cur) { const vc = SCN.vehicleCanvas(G.car.cur); add(12.9 * TILE, () => ctx.drawImage(vc, Math.round(6 * TILE - vc.width / 2), Math.round(12.9 * TILE - vc.height))); }
+  // Stellplatz mit Platz für 2 Autos: vorne (unten) und dahinter (oben)
+  for (const [id, fy] of [[G.car.cur2, 12.0], [G.car.cur, 12.9]]) if (id) { const vc = SCN.vehicleCanvas(id); add(fy * TILE, () => ctx.drawImage(vc, Math.round(6 * TILE - vc.width / 2), Math.round(fy * TILE - vc.height))); }
   // Wanderhändler mit Karren
   add(14.85 * TILE, () => { spr(ctx, 'karren', 0, 12.4 * TILE, 14.95 * TILE); SCN.merchant(ctx, 10.9 * TILE, 14.9 * TILE, (Math.floor(T * 2) % 7 === 0) ? 1 : 0); }); // Händler: eigene Figur mit ganzem Körper, winkt ab und zu
   // Krähen um die erste Vogelscheuche
@@ -255,24 +296,22 @@ function farmObjects(list, T) {
     add(cy, () => SCN.danim(ctx, 'kraehe', Math.floor(T * 7 + i * 3), Math.round(cx), Math.round(cy), Math.cos(a + 1.6) > 0));
   }
   // Enten auf dem See, mit Küken dahinter
-  const duck = (u) => { const a = u; return { x: (6.4 + Math.cos(a) * 3.8) * TILE, y: (22.6 + Math.sin(a) * 1.6) * TILE, dir: -Math.sin(a) }; };
-  const u0 = T * 0.05; const m = duck(u0);
-  add(m.y, () => spr(ctx, 'ente_schwimm', Math.floor(T * 6), Math.round(m.x), Math.round(m.y), m.dir > 0));
-  if (G.pets.kueken) for (let i = 1; i <= 3; i++) { const k = duck(u0 - i * 0.09); add(k.y, () => SCN.danim(ctx, 'kueken_r', Math.floor(T * 8 + i), Math.round(k.x), Math.round(k.y + 2), k.dir > 0)); }
-  const m2 = duck(u0 * 0.7 + 3); add(m2.y, () => spr(ctx, 'ente_schwimm', Math.floor(T * 6) + 2, Math.round(m2.x), Math.round(m2.y), m2.dir > 0));
+  for (const e of duckFlock(T)) add(e.y, e.kid
+    ? () => SCN.danim(ctx, 'kueken_r', Math.floor(T * 8 + e.i), Math.round(e.x), Math.round(e.y + 2), e.left)
+    : () => spr(ctx, 'ente_schwimm', Math.floor(T * 6) + e.i, Math.round(e.x), Math.round(e.y), e.left));
   // Esel grast auf der Uferwiese
-  if (G.pets.esel) {
-    const q = (T * 0.012) % 2, back = q > 1, u = back ? 2 - q : q, ex = (15.5 + u * 20) * TILE, ey = 22.3 * TILE, still = Math.sin(T * 0.4) > 0.6;
-    add(ey, () => SCN.danim(ctx, back ? 'esel_l' : 'esel_r', still ? 0 : Math.floor(T * 7), Math.round(ex), Math.round(ey)));
+  for (let i = 0; i < petN('esel'); i++) { // mehrere Esel: jeder auf seiner Spur und mit eigenem Takt
+    const q = (T * (0.012 + i * 0.002) + i * 0.37) % 2, back = q > 1, u = back ? 2 - q : q, ex = (15.5 + u * 20) * TILE, ey = (21.9 + (i % 3) * 0.35) * TILE, still = Math.sin(T * 0.4 + i * 1.7) > 0.6;
+    add(ey, () => SCN.danim(ctx, back ? 'esel_l' : 'esel_r', still ? 0 : Math.floor(T * 7 + i), Math.round(ex), Math.round(ey)));
   }
 }
 // Hofkatze: sitzt eine Weile auf dem Kratzbaum, dann streift sie über den Hofplatz
 const CAT_PATH = [[13.2, 7.3], [11.2, 8.4], [8.6, 9.6], [6.4, 10.4], [8.2, 8.2], [10.6, 7.4], [12.6, 7.0]];
-function catPos(T) {
-  const cyc = T % 60;
-  if (cyc < 18) return { x: 13.55 * TILE + 11, y: 6.5 * TILE - 57, sit: true };
-  const u = (cyc - 18) / 42 * CAT_PATH.length, i = Math.floor(u), f = u - i;
-  const a = CAT_PATH[i % CAT_PATH.length], b = CAT_PATH[(i + 1) % CAT_PATH.length];
+function catPos(T, i = 0) {
+  const cyc = (T + i * 21) % 60; // jede Katze hat ihren eigenen Rhythmus
+  if (cyc < 18 && i < 2) return i === 0 ? { x: 13.55 * TILE + 11, y: 6.5 * TILE - 57, sit: true } : { x: 13.55 * TILE - 8, y: 6.5 * TILE - 16, sit: true };
+  const u = (i < 2 ? (cyc - 18) / 42 : cyc / 60) * CAT_PATH.length, j = Math.floor(u), f = u - j; // weitere Katzen streifen nur umher
+  const a = CAT_PATH[j % CAT_PATH.length], b = CAT_PATH[(j + 1) % CAT_PATH.length];
   return { x: (a[0] + (b[0] - a[0]) * f) * TILE, y: (a[1] + (b[1] - a[1]) * f) * TILE, dir: b[0] > a[0] ? 1 : -1 };
 }
 // Auftragstafel mit einem Zettel pro Auftrag
@@ -291,9 +330,8 @@ function drawBoard(bx, by, T) {
 }
 // Holzschilder mit Namen (Bergwerk steht schon in der Landschaft)
 function drawPlaques() {
-  const hc = SCN.houseCanvas(G.house);
-  SCN.plaque(ctx, 'Wohnhaus', HOUSE_FOOT.x * TILE, HOUSE_FOOT.y * TILE - hc.height - 12);
-  SCN.plaque(ctx, 'Scheune', 11.3 * TILE, 4.18 * TILE);
+  SCN.plaque(ctx, 'Wohnhaus', HOUSE_FOOT.x * TILE, houseLayout().plaqueY);
+  SCN.plaque(ctx, 'Scheune', BARN.x * TILE, BARN.plaque * TILE);
   SCN.plaque(ctx, 'Hofladen', 11.6 * TILE, 10.75 * TILE);
 }
 // Blasen an See, Boot, Bergwerk und Händler
@@ -348,48 +386,33 @@ function drawPaths() {
   }
 }
 // Jedes Deko-Bild passt ganz in seine w × h Felder: zu große Bilder werden verkleinert, unten mittig ausgerichtet.
-const decoScale = (id) => { const r = DSPR[DECO[id].spr]; return r ? Math.min(1, decoW(id) * TILE / r[2], decoH(id) * TILE / r[3]) : 1; };
+const decoSprKey = (d) => (decoKind(d.t) === 'sign' ? signSpr(d.t, d.text) : DECO[d.t].spr); // Schild: kurzes oder langes Bild
+const decoScale = (d) => { const r = DSPR[decoSprKey(d)]; return r ? Math.min(1, decoW(d.t, d.text) * TILE / r[2], decoH(d.t) * TILE / r[3]) : 1; };
 const decoFoot = (d) => {
-  const r = DSPR[DECO[d.t].spr], room = r ? decoH(d.t) * TILE - r[3] * decoScale(d.t) : 4;
-  return { x: (d.x + decoW(d.t) / 2) * TILE, y: (d.y + decoH(d.t)) * TILE - Math.max(0, Math.min(4, room)) };
+  const r = DSPR[decoSprKey(d)], room = r ? decoH(d.t) * TILE - r[3] * decoScale(d) : 4;
+  return { x: (d.x + decoW(d.t, d.text) / 2) * TILE, y: (d.y + decoH(d.t)) * TILE - Math.max(0, Math.min(4, room)) };
 };
 function drawDeco(d, T, alpha = 1) {
   const def = DECO[d.t], k = decoKind(d.t);
   if (k === 'fence') { drawFence(d, alpha); return; }
   const f = decoFoot(d);
   if (def.atlas) { if (alpha !== 1) ctx.globalAlpha = alpha; spr(ctx, def.atlas, 0, f.x, f.y); ctx.globalAlpha = 1; return; }
-  const s = decoScale(d.t);
+  const s = decoScale(d), key = decoSprKey(d);
   ctx.save(); ctx.translate(f.x, f.y); if (s !== 1) ctx.scale(s, s);
-  SCN.dspr(ctx, def.spr, 0, 0, false, alpha);
+  SCN.dspr(ctx, key, 0, 0, false, alpha);
   if (k === 'sign' && d.text) {
-    const r = DSPR[def.spr], x0 = Math.round(-r[2] / 2), y0 = -r[3], bx = DSIGN[def.spr];
+    const r = DSPR[key], x0 = Math.round(-r[2] / 2), y0 = -r[3], bx = DSIGN[key];
     let t = String(d.text).trim(); while (bx && t.length > 1 && SCN.inkWidth(t) > bx[2] - 8) t = t.slice(0, -1).trimEnd(); // immer mit Rand
     if (bx) SCN.pixelTextBox(ctx, t, x0 + bx[0], y0 + bx[1], bx[2], bx[3], def.text[2]);
   }
   ctx.restore();
 }
 const luma = (h) => { const n = parseInt(h.slice(1), 16); return (n >> 16) * 0.3 + ((n >> 8) & 255) * 0.59 + (n & 255) * 0.11; };
+// Zaun: jedes Feld zeigt einfach sein Zaunstück (kein Verbinden über- oder untereinander – Marvins Wunsch)
 function drawFence(d, alpha = 1) {
-  const def = DECO[d.t], x = d.x * TILE, y = d.y * TILE;
-  const same = (dx, dy) => { const n = inMap(d.x + dx, d.y + dy) && G.deco[tile(d.x + dx, d.y + dy).d]; return n && decoKind(n.t) === 'fence'; };
-  const L = same(-1, 0), Rr = same(1, 0), U = same(0, -1), D = same(0, 1);
+  const def = DECO[d.t], x = d.x * TILE, y = d.y * TILE, r = DSPR[def.spr]; if (!r) return;
   if (alpha !== 1) ctx.globalAlpha = alpha;
-  const [c1, c2] = def.pal;
-  if (U || D) { // senkrechte Verbindung (von oben gesehen): zwei Latten, darauf stehende Pfosten
-    const light = luma(c1) > luma(c2) ? c1 : c2, dark = light === c1 ? c2 : c1;
-    const cx = x + TILE / 2, y0 = U ? y - 4 : y + TILE / 2 - 6, y1 = D ? y + TILE - 4 : y + TILE / 2 + 6;
-    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(cx - 1, y0 + 4, 6, y1 - y0);
-    ctx.fillStyle = dark; ctx.fillRect(cx - 3, y0, 2, y1 - y0); ctx.fillStyle = light; ctx.fillRect(cx + 1, y0, 2, y1 - y0);
-    for (let py = y0 + 4; py <= y1; py += 16) {
-      ctx.fillStyle = '#2a1d14'; ctx.fillRect(cx - 3, py - 12, 7, 13);
-      ctx.fillStyle = light; ctx.fillRect(cx - 2, py - 11, 5, 11); ctx.fillStyle = dark; ctx.fillRect(cx + 1, py - 11, 2, 11);
-      ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(cx - 2, py - 11, 5, 1);
-    }
-  }
-  if (L || Rr || !(U || D)) { // waagerechtes Stück aus dem Zaun-Bild
-    const r = DSPR[def.spr]; if (!r) { ctx.globalAlpha = 1; return; }
-    ctx.drawImage(SCN.DATL, r[0], r[1], Math.min(48, r[2]), r[3], x, y + TILE - r[3] - 6, Math.min(48, r[2]), r[3]);
-  }
+  ctx.drawImage(SCN.DATL, r[0], r[1], Math.min(48, r[2]), r[3], x, y + TILE - r[3] - 6, Math.min(48, r[2]), r[3]);
   ctx.globalAlpha = 1;
 }
 // Licht & Feuer: Flammen flackern, Lampen glimmen, Glühwürmchen blinken
@@ -397,7 +420,7 @@ function drawDecoLights(T) {
   for (const d of Object.values(G.deco)) {
     const L = DECO[d.t].light; if (!L) continue;
     const f0 = decoFoot(d), r = DSPR[DECO[d.t].spr]; if (!r) continue;
-    const s = decoScale(d.t); ctx.save(); ctx.translate(f0.x, f0.y); if (s !== 1) ctx.scale(s, s);
+    const s = decoScale(d); ctx.save(); ctx.translate(f0.x, f0.y); if (s !== 1) ctx.scale(s, s);
     const f = { x: 0, y: 0 }, top = -r[3]; // ab hier in Bild-Koordinaten (passt zur Verkleinerung)
     if (L === 'flame') {
       const fy = d.t === 'fackel' ? top + 18 : top + 22;
@@ -1033,14 +1056,14 @@ function drawHover(T) {
   const h = S.hover;
   if (S.decoPlace) { // Deko-Vorschau: halb durchsichtig, grün = passt, rot = geht hier nicht
     if (!h) return;
-    const id = S.decoPlace.id, ok = decoOK(id, h.x, h.y, S.decoPlace.move, decoReplaces(id));
-    if (decoKind(id) !== 'path') drawDeco({ id: 0, t: id, x: h.x, y: h.y, text: S.decoPlace.text }, T, 0.75);
-    footRect(h.x, h.y, decoW(id), decoH(id), ok, T);
+    const id = S.decoPlace.id, tx = S.decoPlace.text, ok = decoOK(id, h.x, h.y, S.decoPlace.move, decoReplaces(id), tx);
+    if (decoKind(id) !== 'path') drawDeco({ id: 0, t: id, x: h.x, y: h.y, text: tx }, T, 0.75);
+    footRect(h.x, h.y, decoW(id, tx), decoH(id), ok, T);
     return;
   }
   if (!h) return;
   if (S.placing) {
-    const d = BUILDINGS[S.placing], ok = canPlace(S.placing, h.x, h.y);
+    const d = BUILDINGS[S.placing], ok = canPlace(S.placing, h.x, h.y, S.moveB);
     ctx.globalAlpha = 0.8;
     drawBuilding({ id: 0, type: S.placing, x: h.x, y: h.y, animals: 1, horses: ['braun'], job: null }, T);
     ctx.globalAlpha = 1;

@@ -1,7 +1,7 @@
 // ===== Spieldaten: hier wird das Balancing eingestellt =====
 'use strict';
 
-const GAME_VERSION = '7.4 (10.11.2026)'; // im Spielstand-Fenster sichtbar – so sieht man am Handy, ob die neue Version da ist
+const GAME_VERSION = '7.5 (10.11.2026)'; // im Spielstand-Fenster sichtbar – so sieht man am Handy, ob die neue Version da ist
 const TILE = 48;           // Pixel pro Kachel (Welt-Koordinaten)
 // Update 6: neue, größere Karte aus dem Hof-Plan der Werkstatt (vorher 24 × 16)
 const MAP_W = 40;          // Kacheln breit (Hof)
@@ -39,7 +39,7 @@ const FARM = {
 const FARM_OBJ = [
   { id: 'haus', x: 4, y: 3, w: 5, h: 3 }, { id: 'scheune', x: 10, y: 4, w: 2, h: 2 }, { id: 'kratzbaum', x: 13, y: 5, w: 1, h: 1 },
   { id: 'hund', x: 4, y: 8, w: 2, h: 1 }, { id: 'hofladen', x: 10, y: 11, w: 3, h: 2 }, { id: 'tafel', x: 13, y: 12, w: 1, h: 1 },
-  { id: 'stellplatz', x: 5, y: 11, w: 2, h: 2 }, { id: 'steg', x: 6, y: 17, w: 2, h: 4 }, { id: 'boot', x: 6, y: 21, w: 2, h: 2 },
+  { id: 'stellplatz', x: 5, y: 11, w: 2, h: 2 }, { id: 'steg', x: 6, y: 17, w: 2, h: 4 }, { id: 'boot', x: 6, y: 21, w: 3, h: 2 },
   { id: 'bergwerk', x: 37, y: 2, w: 3, h: 3 }, { id: 'haendler', x: 10, y: 14, w: 3, h: 1 },
   { id: 'sonnenfeld', x: 38, y: 14, w: 2, h: 2 }, { id: 'steg', x: 8, y: 16, w: 2, h: 2 }, // Wegweiser „Angelsteg“ gehört zum Steg // Wegweiser am Ende der Dorfstraße (später: mit dem Auto in die Stadt)
 ];
@@ -265,11 +265,11 @@ const DECO = {
   feuerschale:  { name: 'Feuerschale',    cat: 'licht',  lv: 10, price: 420,  spr: 'd_feuerschale', light: 'flame' },
   kerzenstaender:{ name: 'Kerzenständer', cat: 'licht',  lv: 12, price: 650,  spr: 'd_kerzenstaender', light: 'glow' },
   gluehwuermchen:{ name: 'Glühwürmchen',  cat: 'licht',  lv: 13, price: 900,  spr: 'd_gluehwuermchen', light: 'fireflies' },
-  schild_pfahl: { name: 'Pfahlschild',    cat: 'schilder', lv: 1,  price: 30,  kind: 'sign', w: 2, spr: 's_pfahl', icon: 'd_schild_pfahl', text: [43, 4, '#3b2412'] },
-  schild_haenge:{ name: 'Hängeschild',    cat: 'schilder', lv: 6,  price: 80,  kind: 'sign', w: 2, spr: 's_haenge', icon: 'd_schild_haenge', text: [50, 16, '#3b2412'] },
-  schild_kreide:{ name: 'Kreidetafel',    cat: 'schilder', lv: 8,  price: 120, kind: 'sign', w: 2, spr: 's_kreide', icon: 'd_schild_kreide', text: [43, 7, '#f2f2ea'] },
-  schild_weg:   { name: 'Wegweiser',      cat: 'schilder', lv: 10, price: 200, kind: 'sign', w: 2, spr: 's_weg', icon: 'd_schild_weg', text: [42, 6, '#3b2412'] },
-  schild_messing:{ name: 'Messingschild', cat: 'schilder', lv: 12, price: 400, kind: 'sign', w: 2, spr: 's_messing', icon: 'd_schild_messing', text: [45, 12, '#5a4210'] },
+  schild_pfahl: { name: 'Pfahlschild',    cat: 'schilder', lv: 1,  price: 30,  kind: 'sign', spr: 's_pfahl', icon: 'd_schild_pfahl', text: [43, 4, '#3b2412'] },
+  schild_haenge:{ name: 'Hängeschild',    cat: 'schilder', lv: 6,  price: 80,  kind: 'sign', spr: 's_haenge', icon: 'd_schild_haenge', text: [50, 16, '#3b2412'] },
+  schild_kreide:{ name: 'Kreidetafel',    cat: 'schilder', lv: 8,  price: 120, kind: 'sign', spr: 's_kreide', icon: 'd_schild_kreide', text: [43, 7, '#f2f2ea'] },
+  schild_weg:   { name: 'Wegweiser',      cat: 'schilder', lv: 10, price: 200, kind: 'sign', spr: 's_weg', icon: 'd_schild_weg', text: [42, 6, '#3b2412'] },
+  schild_messing:{ name: 'Messingschild', cat: 'schilder', lv: 12, price: 400, kind: 'sign', spr: 's_messing', icon: 'd_schild_messing', text: [45, 12, '#5a4210'] },
   katze:        { name: 'Hofkatze mit Kratzbaum', cat: 'leben', lv: 6, price: 900, kind: 'pet', spr: 'd_katze', note: 'Kratzbaum an der Scheune, die Katze streift über den Hof' },
   kueken:       { name: 'Entenküken',     cat: 'leben',  lv: 8,  price: 350,  kind: 'pet', spr: 'd_kueken', note: 'Schwimmen der Entenmama auf dem See hinterher' },
   kraehe:       { name: 'Krähen',         cat: 'leben',  lv: 6,  price: 0,    kind: 'pet', spr: 'd_kraehe', free: 'vogelscheuche', note: 'Kommen von allein, sobald eine Vogelscheuche steht' },
@@ -296,7 +296,8 @@ const DECO = {
   goldengel:    { name: 'Goldener Engel', cat: 'haendler', lv: 1, price: 12000, kind: 'trader', spr: 'd_goldengel', w: 1, h: 2 },
 };
 const decoKind = (id) => DECO[id].kind || 'item';
-const decoW = (id) => DECO[id].w || 1, decoH = (id) => DECO[id].h || 1;
+const PET_MAX = { katze: 5, esel: 5, kueken: 4 }; // Tiere mehrfach kaufbar (Küken: je Kauf 3 Stück)
+const decoW = (id, text) => (DECO[id].kind === 'sign' ? signW(id, text) : DECO[id].w || 1), decoH = (id) => DECO[id].h || 1; // Schilder: Breite hängt vom Text ab
 const decoBeauty = (id) => Math.max(1, Math.round(Math.sqrt(Math.max(10, DECO[id].price)) / 2));
 
 // ---------- Haus-Ausbau und Autos ----------

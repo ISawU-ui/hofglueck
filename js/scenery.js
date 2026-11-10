@@ -530,7 +530,7 @@ const SCN = (() => {
     const [wc, wd] = HOUSE_COL[o.wall], rc = ROOF_COL[o.roof], trim = o.trim;
     const wallH = floors * fh + 5;
     const big = !!o.hip; // Landhaus: breites Walmdach + Zwerchgiebel; sonst Giebel nach vorne
-    const gH = big ? 0 : Math.round(W0 * 0.4), D = big ? 38 : (floors > 1 ? 27 : 24);
+    const gH = big ? 0 : Math.round(W0 * 0.4), D = big ? 38 : (floors > 1 ? 27 : 20); // Häuschen genau so hoch wie die Scheune (Schilder auf gleicher Höhe)
     const top = big ? 14 : 4;
     const Gw = W0 + ov * 2 + 4, x0 = ov + 2, x1 = x0 + W0, cx = Math.floor(Gw / 2);
     const wy = top + D + gH, gy = wy + wallH + 4;
@@ -577,9 +577,14 @@ const SCN = (() => {
       const py = gy - 5 - fh - 1;
       shingles(G, x0 - 3, py - 6, x1 + 3, py + 2, () => true, [darkHex(rc[0], 1.05), rc[1], rc[2]]);
       grect(G, x0 - 3, py + 2, W0 + 6, 2, trim);
-      for (let x = x0; x <= x1 - 2; x += Math.floor((W0 - 2) / 6)) grect(G, x, py + 4, 2, fh - 1, '#f3ecd9');
-      for (let x = x0; x < x1; x++) { if (Math.abs(x - cx) < 9) continue; gset(G, x, gy - 13, '#f3ecd9'); gset(G, x, gy - 8, '#f3ecd9'); if (x % 3 === 0) for (let y = gy - 12; y < gy - 8; y++) gset(G, x, y, '#efe6d0'); }
+      // Pfosten nur an den Ecken und ZWISCHEN den Fenstern (nie vor einem Fenster oder der Tür)
+      const wcs = []; for (let i = 0; i < nWin; i++) wcs.push(Math.round(x0 + (W0 / nWin) * (i + 0.5)));
+      const posts = [x0, x1 - 2]; for (let i = 0; i < nWin - 1; i++) posts.push(Math.round((wcs[i] + wcs[i + 1]) / 2) - 1);
+      for (const x of posts) grect(G, x, py + 4, 2, fh - 1, '#f3ecd9');
+      // Holzboden, darauf ein niedriges Geländer (unter allen Fensterbänken) mit Lücke für die ganze Tür
       grect(G, x0 - 3, gy - 5, W0 + 6, 4, '#a8774a'); for (let x = x0 - 3; x < x1 + 3; x += 5) gset(G, x, gy - 3, '#7a5230');
+      const gap = o.door === 'doppel' ? 12 : 9;
+      for (let x = x0; x < x1; x++) { if (Math.abs(x + 0.5 - cx) < gap) continue; gset(G, x, gy - 6, '#f3ecd9'); if (x % 3 === 0) for (let y = gy - 5; y < gy - 2; y++) gset(G, x, y, '#efe6d0'); }
       grect(G, cx - 9, gy - 1, 18, 2, '#8a5a32'); grect(G, cx - 10, gy + 1, 20, 2, '#7a5230');
     }
     goutline(G);
