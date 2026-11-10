@@ -412,12 +412,36 @@ function drawDeco(d, T, alpha = 1) {
   ctx.restore();
 }
 const luma = (h) => { const n = parseInt(h.slice(1), 16); return (n >> 16) * 0.3 + ((n >> 8) & 255) * 0.59 + (n & 255) * 0.11; };
-// Zaun: jedes Feld zeigt einfach sein Zaunstück (kein Verbinden über- oder untereinander – Marvins Wunsch)
+// Zaun: jedes Feld zeigt einfach sein Zaunstück (waagerechte verbinden sich nicht – Marvins Wunsch).
+// Senkrechte Stücke: Säule an der linken Feldkante aus dem Endpfosten der Zaunart, von der Zaunreihe darüber bis zum Feldende;
+// steht darunter (oder unten links) ein Zaun, reicht sie bis zu dessen Pfosten hinunter, damit Rechtecke geschlossen aussehen.
+function drawFenceVert(g, def, x, yTop, yBot, alpha = 1) {
+  const r = DSPR[def.spr]; if (!r) return;
+  if (alpha !== 1) g.globalAlpha = alpha;
+  const pw = Math.min(8, r[2]);
+  for (let by = yTop + r[3] * 0.5; by <= yBot; by += 5) g.drawImage(SCN.DATL, r[0], r[1], pw, r[3], Math.round(x - pw / 2), Math.round(by - r[3]), pw, r[3]);
+  g.drawImage(SCN.DATL, r[0], r[1], pw, r[3], Math.round(x - pw / 2), Math.round(yBot - r[3]), pw, r[3]);
+  g.globalAlpha = 1;
+}
 function drawFence(d, alpha = 1) {
   const def = DECO[d.t], x = d.x * TILE, y = d.y * TILE, r = DSPR[def.spr]; if (!r) return;
+  if (def.vert) {
+    const fenceAt = (tx, ty) => { const n = inMap(tx, ty) && G.deco[tile(tx, ty).d]; return n && decoKind(n.t) === 'fence' ? DECO[n.t] : null; };
+    const below = fenceAt(d.x, d.y + 1) || fenceAt(d.x - 1, d.y + 1);
+    let yBot = y + TILE - 6;
+    if (below) { const rb = DSPR[below.spr]; yBot = below.vert ? y + TILE + 2 : y + 2 * TILE - 6 - (rb ? rb[3] : 12) * 0.5; }
+    drawFenceVert(ctx, def, x, y - 6, yBot, alpha); return;
+  }
   if (alpha !== 1) ctx.globalAlpha = alpha;
   ctx.drawImage(SCN.DATL, r[0], r[1], Math.min(48, r[2]), r[3], x, y + TILE - r[3] - 6, Math.min(48, r[2]), r[3]);
   ctx.globalAlpha = 1;
+}
+// Katalog-Bild des senkrechten Zaunstücks
+const fenceVertURLs = {};
+function fenceVertURL(id) {
+  if (fenceVertURLs[id] || !SCN.ready) return fenceVertURLs[id] || '';
+  const c = document.createElement('canvas'); c.width = 20; c.height = 64; const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+  drawFenceVert(g, DECO[id], 10, 2, 62); return (fenceVertURLs[id] = c.toDataURL());
 }
 // Licht & Feuer: Flammen flackern, Lampen glimmen, Glühwürmchen blinken
 function drawDecoLights(T) {

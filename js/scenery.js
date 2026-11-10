@@ -575,7 +575,7 @@ const SCN = (() => {
     // Veranda (amerikanischer Vorbau): Dach als Fläche von oben, Pfosten, Geländer, Holzboden, Stufen
     if (o.porch) {
       const py = gy - 5 - fh - 1;
-      shingles(G, x0 - 3, py - 6, x1 + 3, py + 2, () => true, [darkHex(rc[0], 1.05), rc[1], rc[2]]);
+      shingles(G, x0 - 3, py - 2, x1 + 3, py + 2, () => true, [darkHex(rc[0], 1.05), rc[1], rc[2]]);
       grect(G, x0 - 3, py + 2, W0 + 6, 2, trim);
       // Pfosten nur an den Ecken und ZWISCHEN den Fenstern (nie vor einem Fenster oder der Tür)
       const wcs = []; for (let i = 0; i < nWin; i++) wcs.push(Math.round(x0 + (W0 / nWin) * (i + 0.5)));

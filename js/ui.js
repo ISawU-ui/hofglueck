@@ -596,7 +596,7 @@ function toast(text, kind = '') {
 }
 
 // ================= Update 6: Deko, Haus-Ausbau, Autos, Bergwerk, Händler =================
-const decoImg = (id) => { const d = DECO[id], k = d.icon || d.spr; const u = d.atlas ? '' : SCN.decoIconURL(k); return u ? `<img class="pix" src="${u}" alt="">` : '<span class="big">🌼</span>'; };
+const decoImg = (id) => { const d = DECO[id], k = d.icon || d.spr; const u = d.atlas ? '' : d.vert ? fenceVertURL(id) : SCN.decoIconURL(k); return u ? `<img class="pix" src="${u}" alt="">` : '<span class="big">🌼</span>'; };
 const iconURLs = {};
 const iconImg = (type, key) => { const k = type + '|' + key; if (!iconURLs[k]) iconURLs[k] = SCN.iconCanvas(type, key).toDataURL(); return `<img class="pix" src="${iconURLs[k]}" alt="">`; };
 function decoLockText(id) {

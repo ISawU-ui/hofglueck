@@ -1,7 +1,7 @@
 // ===== Spieldaten: hier wird das Balancing eingestellt =====
 'use strict';
 
-const GAME_VERSION = '7.6 (10.11.2026)'; // im Spielstand-Fenster sichtbar – so sieht man am Handy, ob die neue Version da ist
+const GAME_VERSION = '7.7 (10.11.2026)'; // im Spielstand-Fenster sichtbar – so sieht man am Handy, ob die neue Version da ist
 const TILE = 48;           // Pixel pro Kachel (Welt-Koordinaten)
 // Update 6: neue, größere Karte aus dem Hof-Plan der Werkstatt (vorher 24 × 16)
 const MAP_W = 40;          // Kacheln breit (Hof)
@@ -295,6 +295,10 @@ const DECO = {
   goldlaterne:  { name: 'Goldene Laterne', cat: 'haendler', lv: 1, price: 1500, kind: 'trader', spr: 'd_goldlaterne', light: 'glow' },
   goldengel:    { name: 'Goldener Engel', cat: 'haendler', lv: 1, price: 12000, kind: 'trader', spr: 'd_goldengel', w: 1, h: 2 },
 };
+// Zu jeder Zaunart ein senkrechtes Stück (von oben nach unten bauen, um Rechtecke zu schließen).
+// Es sitzt an der LINKEN Kante seines Feldes: links in der Spalte der Zaunreihe, rechts in der Spalte rechts neben dem letzten Zaunstück.
+for (const id of Object.keys(DECO)) if (DECO[id].kind === 'fence' && !DECO[id].vert)
+  DECO[id + '_v'] = { ...DECO[id], name: DECO[id].name + ' ↕ senkrecht', vert: true, of: id };
 const decoKind = (id) => DECO[id].kind || 'item';
 const PET_MAX = { katze: 5, esel: 5, kueken: 4 }; // Tiere mehrfach kaufbar (Küken: je Kauf 3 Stück)
 const decoW = (id, text) => (DECO[id].kind === 'sign' ? signW(id, text) : DECO[id].w || 1), decoH = (id) => DECO[id].h || 1; // Schilder: Breite hängt vom Text ab
