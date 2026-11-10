@@ -70,6 +70,7 @@ function initUI() {
   }
   $('#sound').addEventListener('click', () => { muted = !muted; $('#sound').textContent = muted ? '🔇' : '🔊'; });
   $('#help').addEventListener('click', () => { sfx('click'); showIntro(0); });
+  $('#slots').addEventListener('click', () => { sfx('click'); openSlots(false); });
   $('#reset').addEventListener('click', () => openModal(`<h2>Neu anfangen?</h2><p>Dein ganzer Fortschritt wird gelöscht.</p>
     <div class="row"><button data-act="close">Abbrechen</button><button class="danger" data-act="reset" data-confirm="Wirklich löschen?">Löschen</button></div>`));
 }
@@ -109,6 +110,8 @@ function handleAct(act, arg) {
     case 'introdone': G.introDone = true; save(); closeModal(); break;
     case 'newsdone': G.seen = NEWS_VERSION; save(); closeModal(); break;
     case 'reset': resetGame(); closeModal(); resetCam(); showIntro(0); break;
+    case 'slot': pickSlot(+arg); break;
+    case 'slotdel': deleteSlot(+arg); openSlots(slotsAtStart); break;
     case 'gotab': closeModal(); openTab(arg); break;
     case 'close': closeModal(); break;
   }
@@ -449,6 +452,45 @@ function introSlides() {
       : '✋ <b>Umsehen</b>: nichts wird aus Versehen gesät. Mausrad = zoomen, ziehen auf leerer Fläche = verschieben, ⌂ = zurück zum Hof. Tasten: 1–7 Saatgut, H Hand, S Spitzhacke. ❓ zeigt diese Hilfe wieder.' },
   ];
 }
+// ---------- Spielstände ----------
+let slotsAtStart = false, startAway = 0;
+function whenText(ms) {
+  if (!ms) return '';
+  const d = new Date(ms), now = new Date(), min = Math.round((now - d) / 60000);
+  if (min < 1) return 'gerade eben';
+  if (min < 60) return 'vor ' + min + ' Min.';
+  const hm = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return 'heute, ' + hm;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'gestern, ' + hm;
+  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + ', ' + hm;
+}
+// atStart = beim Spielstart (Fenster lässt sich nicht wegtippen, danach kommt die Begrüßung)
+function openSlots(atStart, away) {
+  slotsAtStart = !!atStart; if (atStart) startAway = away || 0;
+  if (!atStart) save(); // damit Level/Geld des aktuellen Hofs aktuell angezeigt werden
+  let h = `<div class="slots"><h2>💾 Spielstände</h2><p class="small">${atStart ? 'Welchen Hof möchtest du spielen?' : 'Wechseln speichert deinen aktuellen Hof vorher automatisch.'}</p><div class="slotlist">`;
+  for (let n = 1; n <= SLOTS; n++) {
+    const info = slotInfo(n), cur = n === slot;
+    h += `<div class="slot${cur ? ' cur' : ''}${info ? '' : ' empty'}"><div class="sn">${n}</div><div class="si"><b>Spielstand ${n}${cur ? ' <em>aktiv</em>' : ''}</b>`;
+    h += info ? `<small>⭐ Level ${info.level} · 💰 ${fmt(Math.floor(info.money))}<br>zuletzt ${whenText(info.last)}</small>` : '<small>leer – hier beginnt ein neuer Hof</small>';
+    h += `</div><div class="sb">`;
+    if (info && !cur) h += `<button class="ghost danger" data-act="slotdel:${n}" data-confirm="Löschen?" title="Spielstand löschen">🗑️</button>`;
+    h += `<button data-act="slot:${n}">${cur ? (atStart ? 'Weiterspielen' : 'Zurück') : info ? 'Laden' : 'Neues Spiel'}</button></div></div>`;
+  }
+  h += '</div></div>';
+  openModal(h, atStart ? 'slotstart' : 'slots');
+}
+function pickSlot(n) {
+  const atStart = slotsAtStart; slotsAtStart = false;
+  if (n === slot) { closeModal(); if (atStart) greet(startAway); return; }
+  const away = switchSlot(n);
+  S.placing = null; S.hover = null; S.tool = 'weizen';
+  closeDrawer(); closeModal(); resetCam();
+  toast('💾 Spielstand ' + n + (G.introDone ? ' geladen' : ': neuer Hof'), 'good');
+  greet(away);
+}
+
 function showIntro(i) {
   const s = introSlides(), last = i >= s.length - 1, x = s[Math.min(i, s.length - 1)];
   openModal(`<div class="intro"><div class="ico">${x.icon}</div><h2>${x.title}</h2><p>${x.text}</p>

@@ -226,3 +226,22 @@ ul.news { text-align: left; padding-left: 4px; list-style: none; margin: 4px 0 1
 }
 @keyframes turn { 0%, 25% { transform: rotate(0deg); } 55%, 100% { transform: rotate(-90deg); } }
 @media (prefers-reduced-motion: reduce) { #rotate .phone { animation: none; transform: rotate(-90deg); } }
+
+/* ---------- Spielstände ---------- */
+.slots .slotlist { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.slot { display: flex; align-items: center; gap: 10px; background: #fff8ea; border: 2px solid #e2d2b4; border-radius: 12px; padding: 8px 10px; text-align: left; }
+.slot.cur { border-color: #6cbf4a; background: #f1fbe6; }
+.slot.empty { opacity: .85; border-style: dashed; }
+.slot .sn { width: 30px; height: 30px; border-radius: 50%; background: var(--wood); color: #fff; font-weight: 900; display: grid; place-items: center; flex: none; }
+.slot.cur .sn { background: #4f9f35; }
+.slot .si { flex: 1; min-width: 0; }
+.slot .si b { display: block; }
+.slot .si em { font-style: normal; font-size: 11px; background: #4f9f35; color: #fff; border-radius: 6px; padding: 1px 6px; margin-left: 4px; vertical-align: 1px; }
+.slot .si small { color: #6d5a48; font-size: 12px; line-height: 1.35; }
+.slot .sb { display: flex; gap: 6px; flex: none; }
+.slot .sb button { padding: 7px 12px; }
+@media (max-height: 540px) {
+  .slots .slotlist { gap: 5px; margin-top: 6px; }
+  .slot { padding: 5px 8px; }
+  .slot .si small { font-size: 11px; }
+}

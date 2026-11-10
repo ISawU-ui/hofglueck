@@ -128,7 +128,7 @@ function clickBuilding(b) {
 }
 
 function onKey(e) {
-  if (e.key === 'Escape') { if (!$('#modal').hidden) closeModal(); S.placing = null; closeDrawer(); renderUI(); return; }
+  if (e.key === 'Escape') { if (!$('#modal').hidden && $('#modal').dataset.kind !== 'slotstart') closeModal(); S.placing = null; closeDrawer(); renderUI(); return; }
   if (e.key === 's' || e.key === 'S') { handleAct('tool', 'schaufel'); renderUI(); return; }
   if (e.key === 'h' || e.key === 'H') { handleAct('tool', 'hand'); renderUI(); return; }
   if (e.key === 'Enter' && S.placing) { confirmPlace(); renderUI(); return; }
@@ -139,6 +139,17 @@ function onKey(e) {
 }
 
 // ---------- Start ----------
+// Begrüßung: neue Spieler bekommen die Einführung, bestehende einmal die Neuigkeiten
+function greet(away) {
+  if (!G.introDone) showIntro(0);
+  else if (G.seen < NEWS_VERSION) showNews();
+  else if (away > 60) {
+    const h = Math.floor(away / 3600), m = Math.floor((away % 3600) / 60);
+    openModal(`<h2>🌅 Willkommen zurück!</h2><p>Du warst ${h ? h + ' Std. ' : ''}${m} Min. weg.<br>Deine Pflanzen und Tiere haben weitergearbeitet.</p><button data-act="close">Los geht's</button>`);
+  }
+  if (modalQueue.length && $('#modal').hidden) openModal(modalQueue.shift());
+}
+
 function start() {
   const away = load();
   initRender();
@@ -164,19 +175,13 @@ function start() {
     else if (b.dataset.zoom === 'out') zoomAt(1 / 1.3, c.x, c.y);
     else resetCam(true);
   });
-  $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && !modalJustOpened()) closeModal(); });
+  $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && !modalJustOpened() && $('#modal').dataset.kind !== 'slotstart') closeModal(); });
   window.addEventListener('keydown', onKey);
   window.addEventListener('beforeunload', save);
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-  // Begrüßung: neue Spieler bekommen die Einführung, bestehende einmal die Neuigkeiten
-  if (!G.introDone) showIntro(0);
-  else if (G.seen < NEWS_VERSION) showNews();
-  else if (away > 60) {
-    const h = Math.floor(away / 3600), m = Math.floor((away % 3600) / 60);
-    openModal(`<h2>🌅 Willkommen zurück!</h2><p>Du warst ${h ? h + ' Std. ' : ''}${m} Min. weg.<br>Deine Pflanzen und Tiere haben weitergearbeitet.</p><button data-act="close">Los geht's</button>`);
-  }
-  if (modalQueue.length && $('#modal').hidden) openModal(modalQueue.shift());
+  // Beim Start zuerst die Spielstände – danach die Begrüßung für den gewählten Hof
+  openSlots(true, away);
 
   renderUI();
   resize(); // jetzt sind Werkzeugleiste & Anzeigen gefüllt → freien Bereich neu messen

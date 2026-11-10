@@ -179,6 +179,7 @@ function draw(time) {
   if (vr.x0 < 3 * TILE) drawDecor(T);
   drawParcels();
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) drawCrop(x, y, T);
+  if (atlasReady) for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) drawCropMark(x, y, T); // Sichtbarkeit: wächst / reif
   if (vr.x1 > TOWN_X0 * TILE) drawTown(T);
   const bs = Object.values(G.buildings).sort((a, b) => a.y - b.y);
   for (const b of bs) drawBuilding(b, T);
@@ -534,7 +535,8 @@ function drawParcels() {
           ctx.fillStyle = '#93533a'; ctx.fillRect(sx, sy, TILE, TILE); // Erdfarbe unter die Kachel (das Sheet hat durchsichtige Fugen)
           ctx.drawImage(ATL, f[0], f[1], 48, 48, sx, sy, TILE, TILE);
           if (wet) { ctx.fillStyle = 'rgba(30,45,110,0.24)'; ctx.fillRect(sx, sy, TILE, TILE); }
-          else if (t.c) { ctx.fillStyle = 'rgba(40,20,5,0.10)'; ctx.fillRect(sx, sy, TILE, TILE); }
+          else if (t.c && t.p < 1) { ctx.fillStyle = 'rgba(35,18,6,0.26)'; ctx.fillRect(sx, sy, TILE, TILE); } // bepflanzt: dunkle, feuchte Erde
+          else if (t.c) { ctx.fillStyle = 'rgba(255,215,90,0.16)'; ctx.fillRect(sx, sy, TILE, TILE); }     // reif: heller, goldener Boden
           ctx.fillStyle = 'rgba(55,28,12,0.35)'; ctx.fillRect(sx, sy, TILE, 2); ctx.fillRect(sx, sy, 2, TILE);
           ctx.fillStyle = 'rgba(255,215,160,0.12)'; ctx.fillRect(sx + 2, sy + 2, TILE - 2, 1);
           if (wet) { ctx.fillStyle = 'rgba(170,215,255,0.8)'; ctx.fillRect(sx + 12, sy + 34, 2, 2); ctx.fillRect(sx + 34, sy + 16, 2, 2); }
@@ -580,6 +582,34 @@ function drawParcels() {
   }
 }
 
+// Markierung über jeder bepflanzten Kachel (Pixel-Grafik):
+//  wächst → Symbol der Pflanze + grüner Fortschrittsbalken · reif → goldene, pulsierende Ecken + Funkeln
+function drawCropMark(x, y, T) {
+  const t = tile(x, y); if (!t.c) return;
+  const sx = x * TILE, sy = y * TILE;
+  if (t.p >= 1) {
+    const a = 0.65 + Math.sin(T * 4 + x * 0.9 + y * 0.6) * 0.35, L = 13, w = 3, e = TILE - 1;
+    ctx.fillStyle = 'rgba(60,35,0,0.35)'; // dunkler Schatten unter den Ecken für Kontrast
+    for (const [cx, cy, dx, dy] of [[sx + 1, sy + 1, 1, 1], [sx + e, sy + 1, -1, 1], [sx + 1, sy + e, 1, -1], [sx + e, sy + e, -1, -1]]) {
+      ctx.fillRect(dx > 0 ? cx + 1 : cx - L + 1, dy > 0 ? cy + 1 : cy - w + 1, L, w); ctx.fillRect(dx > 0 ? cx + 1 : cx - w + 1, dy > 0 ? cy + 1 : cy - L + 1, w, L);
+    }
+    ctx.fillStyle = `rgba(255,214,64,${a})`;
+    for (const [cx, cy, dx, dy] of [[sx + 1, sy + 1, 1, 1], [sx + e, sy + 1, -1, 1], [sx + 1, sy + e, 1, -1], [sx + e, sy + e, -1, -1]]) {
+      ctx.fillRect(dx > 0 ? cx : cx - L, dy > 0 ? cy : cy - w, L, w); ctx.fillRect(dx > 0 ? cx : cx - w, dy > 0 ? cy : cy - L, w, L);
+    }
+    const k = Math.floor(T * 2.5 + hash(x, y) * 4) % 4, fx = sx + [12, 35, 33, 14][k], fy = sy + [11, 15, 33, 30][k];
+    ctx.fillStyle = '#fff6c2'; ctx.fillRect(fx - 1, fy - 5, 2, 10); ctx.fillRect(fx - 5, fy - 1, 10, 2);
+    ctx.fillStyle = '#fff'; ctx.fillRect(fx - 1, fy - 1, 2, 2);
+    return;
+  }
+  const by = sy + TILE - 9; // wächst: Symbol links, Balken rechts – unten im Feld
+  ctx.fillStyle = 'rgba(255,248,230,0.92)'; ctx.beginPath(); ctx.arc(sx + 9, by + 2, 7.5, 0, 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(60,35,10,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+  drawEmoji(ctx, ITEMS[t.c].icon, sx + 9, by + 2, 11);
+  ctx.fillStyle = 'rgba(20,12,4,0.6)'; ctx.fillRect(sx + 18, by, TILE - 22, 5);
+  ctx.fillStyle = t.p > 0.85 ? '#d9f26a' : '#9be15d'; ctx.fillRect(sx + 19, by + 1, Math.max(1, Math.round((TILE - 24) * t.p)), 3);
+}
+
 function drawCrop(x, y, T) {
   const t = tile(x, y);
   if (!t.c) return;
@@ -593,10 +623,6 @@ function drawCrop(x, y, T) {
     }
     if (SPR[t.c][0][6] <= 16) { spr(ctx, t.c, stage, px - 15, by - 3); spr(ctx, t.c, stage, px + 15, by - 3); spr(ctx, t.c, stage, px, by); }
     else spr(ctx, t.c, stage, px, by);
-    if (p >= 1 && (T * 1.3 + hash(x, y) * 10) % 3 < 0.25) { // Pixel-Funkeln
-      const sx = px + 12, sy = py - 14; ctx.fillStyle = '#fff6c2';
-      ctx.fillRect(sx - 1, sy - 5, 2, 10); ctx.fillRect(sx - 5, sy - 1, 10, 2); ctx.fillStyle = '#fff'; ctx.fillRect(sx - 1, sy - 1, 2, 2);
-    }
     return;
   }
   if (p >= 1) {
@@ -867,7 +893,10 @@ function drawBubble(b, T) {
     const by = top - 6 + Math.sin(T * 5) * 3;
     bubbleIcon(cx, by, d.kind === 'horse' ? '🐴' : ITEMS[b.job.out].icon, d.kind === 'tree' ? 13 : 17, '#5cb85c');
   } else if (b.job) {
-    if (d.kind === 'tree') return; // man sieht die Früchte wachsen
+    if (d.kind === 'tree') { // kleiner Balken unter dem Baum: man sieht sofort, wie lange es noch dauert
+      if (atlasReady) { const bx = b.x * TILE, by = b.y * TILE + TILE - 6; ctx.fillStyle = 'rgba(20,12,4,0.6)'; ctx.fillRect(bx + 6, by, TILE - 12, 5); ctx.fillStyle = '#9be15d'; ctx.fillRect(bx + 7, by + 1, Math.max(1, Math.round((TILE - 14) * b.job.p)), 3); }
+      return;
+    }
     ctx.fillStyle = 'rgba(0,0,0,0.45)'; rr(cx - 30, top - 4, 60, 9, 4); ctx.fill();
     ctx.fillStyle = d.kind === 'horse' ? '#ff7aa8' : '#7ed957'; rr(cx - 29, top - 3, 58 * b.job.p, 7, 3); ctx.fill();
   } else if (d.kind !== 'tree') {

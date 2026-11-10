@@ -41,14 +41,35 @@ function newGame() {
   while (G.orders.length < 3) G.orders.push(makeOrder());
 }
 
+// ---------- Spielstände: 3 Plätze ----------
+// Platz 1 benutzt den alten Schlüssel → bestehende Spielstände sind automatisch „Spielstand 1“.
+const SLOT_KEY = 'farmspiel_slot';
+const SLOTS = 3;
+let slot = 1;
+try { slot = Math.min(SLOTS, Math.max(1, parseInt(localStorage.getItem(SLOT_KEY), 10) || 1)); } catch (e) {}
+const slotKey = (n) => n === 1 ? SAVE_KEY : SAVE_KEY + '_s' + n;
+function slotInfo(n) {
+  try {
+    const raw = localStorage.getItem(slotKey(n)); if (!raw) return null;
+    const g = JSON.parse(raw);
+    return { level: g.level || 1, money: g.money || 0, last: g.lastSave || 0 };
+  } catch (e) { return null; }
+}
+function switchSlot(n) { // speichert den aktuellen Hof und lädt Platz n (leer = neues Spiel)
+  save();
+  slot = n; try { localStorage.setItem(SLOT_KEY, String(n)); } catch (e) {}
+  return load();
+}
+function deleteSlot(n) { if (n === slot) return; try { localStorage.removeItem(slotKey(n)); } catch (e) {} }
+
 function save() {
   G.lastSave = Date.now();
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(G)); } catch (e) { /* privat-Modus o.ä. */ }
+  try { localStorage.setItem(slotKey(slot), JSON.stringify(G)); } catch (e) { /* privat-Modus o.ä. */ }
 }
 
 function load() {
   let raw = null;
-  try { raw = localStorage.getItem(SAVE_KEY); } catch (e) {}
+  try { raw = localStorage.getItem(slotKey(slot)); } catch (e) {}
   if (!raw) { newGame(); return 0; }
   try {
     G = JSON.parse(raw);
@@ -68,7 +89,7 @@ function load() {
   return away;
 }
 
-function resetGame() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} newGame(); rebuildBoost(); }
+function resetGame() { try { localStorage.removeItem(slotKey(slot)); } catch (e) {} newGame(); rebuildBoost(); }
 
 // ---------- Multiplikatoren ----------
 const upg = (id) => G.upgrades[id] || 0;
